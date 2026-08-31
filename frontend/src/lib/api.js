@@ -40,3 +40,15 @@ export function createAvailability(token, payload) {
 export function deleteAvailability(token, id) {
   return apiFetch(`/availability/${id}`, { method: 'DELETE', token });
 }
+
+export function pullMockShipments(token, count = 3) {
+  return apiFetch('/shipments/mock-pull', { method: 'POST', body: { count }, token });
+}
+
+export function listShipments(token) {
+  return apiFetch('/shipments/me', { token });
+}
+
+export function getMatchCandidates(token, shipmentId) {
+  return apiFetch(`/matches/candidates/${shipmentId}`, { token });
+}

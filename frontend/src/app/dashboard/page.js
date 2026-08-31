@@ -60,9 +60,13 @@ export default function DashboardPage() {
         ) : (
           <>
             <h2 className="font-medium">Shipper dashboard</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Shipment pulls and match approvals land here in the next build steps.
-            </p>
+            <p className="mt-1 text-sm text-gray-500">Match approvals land here in the next build steps.</p>
+            <a
+              href="/dashboard/shipments"
+              className="mt-4 inline-block rounded-md bg-black px-4 py-2 text-sm font-medium text-white"
+            >
+              View shipments
+            </a>
           </>
         )}
       </div>
