@@ -49,9 +49,13 @@ export default function DashboardPage() {
         {user.role === 'carrier' ? (
           <>
             <h2 className="font-medium">Carrier dashboard</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Truck availability entry and match approvals land here in the next build steps.
-            </p>
+            <p className="mt-1 text-sm text-gray-500">Match approvals land here in the next build steps.</p>
+            <a
+              href="/dashboard/availability"
+              className="mt-4 inline-block rounded-md bg-black px-4 py-2 text-sm font-medium text-white"
+            >
+              Manage truck availability
+            </a>
           </>
         ) : (
           <>

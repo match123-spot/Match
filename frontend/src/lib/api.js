@@ -28,3 +28,15 @@ export function login(payload) {
 export function getMe(token) {
   return apiFetch('/users/me', { token });
 }
+
+export function listAvailability(token) {
+  return apiFetch('/availability/me', { token });
+}
+
+export function createAvailability(token, payload) {
+  return apiFetch('/availability', { method: 'POST', body: payload, token });
+}
+
+export function deleteAvailability(token, id) {
+  return apiFetch(`/availability/${id}`, { method: 'DELETE', token });
+}
