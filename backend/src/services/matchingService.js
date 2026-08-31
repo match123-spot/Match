@@ -31,14 +31,17 @@ function scoreUtilization(ratio) {
   return round2(Math.min(100, (ratio / 0.85) * 100));
 }
 
-async function scoreReliability(carrierId) {
+async function getReliabilityStats(carrierId) {
   const { rows } = await pool.query(
     `SELECT AVG(star_rating) AS avg_rating, COUNT(*) AS count FROM ratings WHERE rated_carrier_id = $1`,
     [carrierId]
   );
   const count = Number(rows[0]?.count ?? 0);
-  if (count === 0) return 70; // neutral default until the carrier has ratings
-  return round2((Number(rows[0].avg_rating) / 5) * 100);
+  if (count === 0) {
+    return { score: 70, avgRating: null, ratingCount: 0 }; // neutral default until the carrier has ratings
+  }
+  const avgRating = round2(Number(rows[0].avg_rating));
+  return { score: round2((avgRating / 5) * 100), avgRating, ratingCount: count };
 }
 
 /**
@@ -65,7 +68,8 @@ async function rankCandidates(shipment, limit = 5) {
 
     const distance = scoreDistance(shipment.origin_region, row.origin_region);
     const utilization = scoreUtilization(utilizationRatio);
-    const reliability = await scoreReliability(row.carrier_id);
+    const reliabilityStats = await getReliabilityStats(row.carrier_id);
+    const reliability = reliabilityStats.score;
     const acceptanceRate = round2(Number(row.historical_acceptance_rate));
 
     const total = round2(
@@ -79,6 +83,8 @@ async function rankCandidates(shipment, limit = 5) {
         companyName: row.company_name,
         baseLocation: row.base_location,
         historicalAcceptanceRate: acceptanceRate,
+        avgRating: reliabilityStats.avgRating,
+        ratingCount: reliabilityStats.ratingCount,
       },
       availability: {
         originRegion: row.origin_region,
@@ -95,4 +101,4 @@ async function rankCandidates(shipment, limit = 5) {
   return scored.slice(0, limit);
 }
 
-module.exports = { rankCandidates, scoreDistance, scoreTiming, scoreUtilization, scoreReliability };
+module.exports = { rankCandidates, scoreDistance, scoreTiming, scoreUtilization, getReliabilityStats };

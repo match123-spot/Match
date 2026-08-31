@@ -68,3 +68,11 @@ export function approveMatch(token, matchId) {
 export function rejectMatch(token, matchId) {
   return apiFetch(`/matches/${matchId}/reject`, { method: 'POST', token });
 }
+
+export function completeMatch(token, matchId) {
+  return apiFetch(`/matches/${matchId}/complete`, { method: 'POST', token });
+}
+
+export function submitRating(token, payload) {
+  return apiFetch('/ratings', { method: 'POST', body: payload, token });
+}

@@ -63,7 +63,7 @@ router.post('/', requireAuth, requireRole('shipper'), async (req, res) => {
 
 const MATCH_SELECT = `
   SELECT m.*, s.origin_region, s.destination_region, s.weight_kg, s.truck_type_required,
-         s.pickup_window_start, s.pickup_window_end, s.otm_shipment_ref,
+         s.pickup_window_start, s.pickup_window_end, s.otm_shipment_ref, s.status AS shipment_status,
          c.company_name AS carrier_company_name, c.base_location AS carrier_base_location,
          ca.origin_region AS availability_origin_region, ca.window_start AS availability_window_start,
          ca.window_end AS availability_window_end
@@ -87,7 +87,31 @@ router.get('/me', requireAuth, async (req, res) => {
     );
   }
   const { rows } = await query;
-  res.json({ matches: rows });
+
+  const matchIds = rows.map((r) => r.id);
+  let ratedMatchIds = new Set();
+  if (matchIds.length > 0) {
+    const ratings = await pool.query(
+      `SELECT match_id FROM ratings WHERE rater_role = $1 AND match_id = ANY($2)`,
+      [req.user.role, matchIds]
+    );
+    ratedMatchIds = new Set(ratings.rows.map((r) => r.match_id));
+  }
+
+  res.json({ matches: rows.map((r) => ({ ...r, already_rated: ratedMatchIds.has(r.id) })) });
+});
+
+router.post('/:id/complete', requireAuth, async (req, res) => {
+  const resolved = await getMatchForUser(req.params.id, req.user.sub);
+  if (!resolved) return res.status(404).json({ error: 'Match not found' });
+  if (resolved.match.status !== 'booked') {
+    return res.status(409).json({ error: 'Only a booked match can be marked complete' });
+  }
+
+  await pool.query(`UPDATE shipments SET status = 'completed', updated_at = now() WHERE id = $1`, [
+    resolved.match.shipment_id,
+  ]);
+  res.json({ status: 'completed' });
 });
 
 router.post('/:id/approve', requireAuth, async (req, res) => {
