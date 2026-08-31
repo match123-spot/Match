@@ -76,3 +76,15 @@ export function completeMatch(token, matchId) {
 export function submitRating(token, payload) {
   return apiFetch('/ratings', { method: 'POST', body: payload, token });
 }
+
+export function getAutoApproveSettings(token) {
+  return apiFetch('/settings/me', { token });
+}
+
+export function setShipperAutoApprove(token, autoApproveMaxCost) {
+  return apiFetch('/settings/shipper', { method: 'PATCH', body: { autoApproveMaxCost }, token });
+}
+
+export function setCarrierAutoApprove(token, autoApproveMinIncome) {
+  return apiFetch('/settings/carrier', { method: 'PATCH', body: { autoApproveMinIncome }, token });
+}

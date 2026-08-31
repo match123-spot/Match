@@ -129,6 +129,9 @@ export default function ShipmentsPage() {
               <div>
                 <p className="font-medium">
                   {s.origin_region} → {s.destination_region}
+                  {s.quoted_rate != null && (
+                    <span className="ml-2 font-normal text-gray-500">${Number(s.quoted_rate).toFixed(2)}</span>
+                  )}
                 </p>
                 <p className="text-xs text-gray-500">
                   {s.weight_kg}kg · {s.truck_type_required} · {s.otm_shipment_ref} · status: {s.status}

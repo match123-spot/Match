@@ -26,6 +26,7 @@ CREATE TABLE shippers (
   company_name      TEXT NOT NULL,
   billing_address   TEXT,
   otm_source_id     TEXT, -- reference id from (mocked) OTM TMS pull
+  auto_approve_max_cost NUMERIC(10,2), -- NULL = auto-approval disabled; else auto-approve matches at/below this rate
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -44,6 +45,7 @@ CREATE TABLE carriers (
   base_lat              DOUBLE PRECISION,
   base_lng              DOUBLE PRECISION,
   historical_acceptance_rate NUMERIC(5,2) NOT NULL DEFAULT 100.00, -- % of matches accepted, feeds scoring
+  auto_approve_min_income NUMERIC(10,2), -- NULL = auto-approval disabled; else auto-approve matches at/above this rate
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -89,6 +91,7 @@ CREATE TABLE shipments (
   truck_type_required   TEXT NOT NULL,
   pickup_window_start   TIMESTAMPTZ NOT NULL,
   pickup_window_end     TIMESTAMPTZ NOT NULL,
+  quoted_rate           NUMERIC(10,2), -- mocked freight rate (AUD), drives auto-approval thresholds
   status                TEXT NOT NULL DEFAULT 'pending'
                           CHECK (status IN ('pending', 'matching', 'awaiting_approval', 'booked', 'cancelled', 'completed')),
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -62,6 +62,12 @@ export default function DashboardPage() {
               >
                 Matches
               </a>
+              <a
+                href="/dashboard/settings"
+                className="inline-block rounded-md border border-gray-300 px-4 py-2 text-sm font-medium"
+              >
+                Auto-approval
+              </a>
             </div>
           </>
         ) : (
@@ -79,6 +85,12 @@ export default function DashboardPage() {
                 className="inline-block rounded-md border border-gray-300 px-4 py-2 text-sm font-medium"
               >
                 Matches
+              </a>
+              <a
+                href="/dashboard/settings"
+                className="inline-block rounded-md border border-gray-300 px-4 py-2 text-sm font-medium"
+              >
+                Auto-approval
               </a>
             </div>
           </>

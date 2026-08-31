@@ -23,9 +23,20 @@ router.post('/mock-pull', async (req, res) => {
   for (const m of mocks) {
     const result = await pool.query(
       `INSERT INTO shipments
-         (shipper_id, otm_shipment_ref, origin_region, destination_region, weight_kg, truck_type_required, pickup_window_start, pickup_window_end)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [shipperId, m.otmRef, m.originRegion, m.destinationRegion, m.weightKg, m.truckType, m.pickupStart, m.pickupEnd]
+         (shipper_id, otm_shipment_ref, origin_region, destination_region, weight_kg, truck_type_required,
+          pickup_window_start, pickup_window_end, quoted_rate)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [
+        shipperId,
+        m.otmRef,
+        m.originRegion,
+        m.destinationRegion,
+        m.weightKg,
+        m.truckType,
+        m.pickupStart,
+        m.pickupEnd,
+        m.quotedRate,
+      ]
     );
     inserted.push(result.rows[0]);
   }

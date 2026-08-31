@@ -246,6 +246,9 @@ export default function MatchesPage() {
                 <div>
                   <p className="font-medium">
                     {m.origin_region} → {m.destination_region}
+                    {m.quoted_rate != null && (
+                      <span className="ml-2 font-normal text-gray-500">${Number(m.quoted_rate).toFixed(2)}</span>
+                    )}
                   </p>
                   <p className="text-xs text-gray-500">
                     {m.weight_kg}kg · {m.truck_type_required} · {m.carrier_company_name}

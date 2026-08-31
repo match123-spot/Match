@@ -1,7 +1,9 @@
 const { pool } = require('../config/db');
 const { rankCandidates } = require('./matchingService');
+const { sendMatchRequestEmail, sendBookingConfirmationEmail } = require('./emailService');
 
 const APPROVAL_WINDOW_MS = 20 * 60 * 1000;
+const OPEN_STATUSES = ['pending', 'shipper_approved', 'carrier_approved'];
 
 async function getExcludedAvailabilityIds(shipmentId) {
   const { rows } = await pool.query(
@@ -9,6 +11,31 @@ async function getExcludedAvailabilityIds(shipmentId) {
     [shipmentId]
   );
   return rows.map((r) => r.carrier_availability_id);
+}
+
+/**
+ * Auto-approves a freshly created match on whichever side has opted in and
+ * clears its threshold: shippers set a max acceptable rate, carriers set a
+ * min acceptable rate (their idle-truck opportunity cost). Each side is
+ * independent — a match can end up half auto-approved, waiting on a human
+ * on the other side.
+ */
+async function maybeAutoApprove(match, shipment, carrierInfo) {
+  const rate = shipment.quoted_rate;
+  if (rate == null) return;
+
+  const shipperResult = await pool.query('SELECT auto_approve_max_cost FROM shippers WHERE id = $1', [
+    shipment.shipper_id,
+  ]);
+  const shipperThreshold = shipperResult.rows[0]?.auto_approve_max_cost;
+  const carrierThreshold = carrierInfo.auto_approve_min_income;
+
+  if (shipperThreshold != null && Number(rate) <= Number(shipperThreshold)) {
+    await approveMatch(match.id, 'shipper');
+  }
+  if (carrierThreshold != null && Number(rate) >= Number(carrierThreshold)) {
+    await approveMatch(match.id, 'carrier');
+  }
 }
 
 /**
@@ -46,12 +73,24 @@ async function createMatchForShipment(shipment, { rematchOf = null } = {}) {
       rematchOf,
     ]
   );
+  const match = rows[0];
 
   await pool.query(`UPDATE shipments SET status = 'awaiting_approval', updated_at = now() WHERE id = $1`, [
     shipment.id,
   ]);
 
-  return rows[0];
+  const carrierResult = await pool.query(
+    `SELECT c.company_name, c.auto_approve_min_income, u.email AS carrier_email
+     FROM carriers c JOIN users u ON u.id = c.user_id WHERE c.id = $1`,
+    [match.carrier_id]
+  );
+  const carrierInfo = carrierResult.rows[0];
+
+  await sendMatchRequestEmail(carrierInfo.carrier_email, { shipment });
+  await maybeAutoApprove(match, shipment, carrierInfo);
+
+  const finalResult = await pool.query('SELECT * FROM matches WHERE id = $1', [match.id]);
+  return finalResult.rows[0];
 }
 
 async function bookMatch(match) {
@@ -74,6 +113,29 @@ async function bookMatch(match) {
   }
 }
 
+async function sendBookingEmails(matchId) {
+  const { rows } = await pool.query(
+    `SELECT s.*, us.email AS shipper_email, uc.email AS carrier_email, c.company_name AS carrier_company_name
+     FROM matches m
+     JOIN shipments s ON s.id = m.shipment_id
+     JOIN shippers sh ON sh.id = s.shipper_id
+     JOIN users us ON us.id = sh.user_id
+     JOIN carriers c ON c.id = m.carrier_id
+     JOIN users uc ON uc.id = c.user_id
+     WHERE m.id = $1`,
+    [matchId]
+  );
+  const ctx = rows[0];
+  if (!ctx) return;
+
+  await sendBookingConfirmationEmail({
+    shipperEmail: ctx.shipper_email,
+    carrierEmail: ctx.carrier_email,
+    shipment: ctx,
+    carrierCompanyName: ctx.carrier_company_name,
+  });
+}
+
 /** Resolves whether `userId` is the shipper or the carrier on a given match. */
 async function getMatchForUser(matchId, userId) {
   const { rows } = await pool.query(
@@ -91,8 +153,6 @@ async function getMatchForUser(matchId, userId) {
   if (row.carrier_user_id === userId) return { match: row, role: 'carrier' };
   return null;
 }
-
-const OPEN_STATUSES = ['pending', 'shipper_approved', 'carrier_approved'];
 
 async function approveMatch(matchId, role) {
   const column = role === 'shipper' ? 'shipper_approved_at' : 'carrier_approved_at';
@@ -115,6 +175,7 @@ async function approveMatch(matchId, role) {
 
   if (bothApproved) {
     await bookMatch(updated.rows[0]);
+    await sendBookingEmails(matchId);
     const rebooked = await pool.query('SELECT * FROM matches WHERE id = $1', [matchId]);
     return rebooked.rows[0];
   }
