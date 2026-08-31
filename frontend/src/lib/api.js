@@ -52,3 +52,19 @@ export function listShipments(token) {
 export function getMatchCandidates(token, shipmentId) {
   return apiFetch(`/matches/candidates/${shipmentId}`, { token });
 }
+
+export function requestMatch(token, shipmentId) {
+  return apiFetch('/matches', { method: 'POST', body: { shipmentId }, token });
+}
+
+export function listMyMatches(token) {
+  return apiFetch('/matches/me', { token });
+}
+
+export function approveMatch(token, matchId) {
+  return apiFetch(`/matches/${matchId}/approve`, { method: 'POST', token });
+}
+
+export function rejectMatch(token, matchId) {
+  return apiFetch(`/matches/${matchId}/reject`, { method: 'POST', token });
+}

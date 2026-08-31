@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { listShipments, pullMockShipments, getMatchCandidates } from '@/lib/api';
+import { listShipments, pullMockShipments, getMatchCandidates, requestMatch } from '@/lib/api';
 
 const SCORE_LABELS = {
   distance: 'Distance fit',
@@ -33,6 +33,8 @@ export default function ShipmentsPage() {
   const [pulling, setPulling] = useState(false);
   const [matchesByShipment, setMatchesByShipment] = useState({});
   const [matchLoadingId, setMatchLoadingId] = useState(null);
+  const [requestingId, setRequestingId] = useState(null);
+  const [requested, setRequested] = useState({});
 
   useEffect(() => {
     const tok = localStorage.getItem('fc_token');
@@ -63,6 +65,21 @@ export default function ShipmentsPage() {
       setError(err.message);
     } finally {
       setPulling(false);
+    }
+  }
+
+  async function handleRequestMatch(shipmentId) {
+    setError('');
+    setRequestingId(shipmentId);
+    try {
+      await requestMatch(tokenRef.current, shipmentId);
+      setRequested((r) => ({ ...r, [shipmentId]: true }));
+      const data = await listShipments(tokenRef.current);
+      setShipments(data.shipments);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRequestingId(null);
     }
   }
 
@@ -117,13 +134,32 @@ export default function ShipmentsPage() {
                   {s.weight_kg}kg · {s.truck_type_required} · {s.otm_shipment_ref} · status: {s.status}
                 </p>
               </div>
-              <button
-                onClick={() => handleViewMatches(s.id)}
-                disabled={matchLoadingId === s.id}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-              >
-                {matchLoadingId === s.id ? 'Scoring…' : 'View matches'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleViewMatches(s.id)}
+                  disabled={matchLoadingId === s.id}
+                  className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                >
+                  {matchLoadingId === s.id ? 'Scoring…' : 'Preview matches'}
+                </button>
+                {s.status === 'pending' && !requested[s.id] && (
+                  <button
+                    onClick={() => handleRequestMatch(s.id)}
+                    disabled={requestingId === s.id}
+                    className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                  >
+                    {requestingId === s.id ? 'Requesting…' : 'Request match'}
+                  </button>
+                )}
+                {(s.status === 'awaiting_approval' || s.status === 'booked' || requested[s.id]) && (
+                  <a
+                    href="/dashboard/matches"
+                    className="rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white"
+                  >
+                    View in Matches
+                  </a>
+                )}
+              </div>
             </div>
 
             {matchesByShipment[s.id] && (
