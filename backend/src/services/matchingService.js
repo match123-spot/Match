@@ -1,16 +1,26 @@
 const { pool } = require('../config/db');
 const { lookupCoords, haversineKm } = require('./geo');
 
+// Hard geographic eligibility cutoff: a truck this far from the shipment
+// origin is not a candidate at all, regardless of how well it scores on
+// everything else — a carrier in Auckland cannot pick up a load out of
+// Wellington. Within this radius, distance is still 30% of the weighted
+// score, favouring the closest truck.
+const MAX_PICKUP_DISTANCE_KM = 150;
+
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
-function scoreDistance(shipmentOriginRegion, carrierOriginRegion) {
+// Returns both the raw distance and the 0-100 score, so callers can enforce
+// the hard cutoff and display the actual km, not just the derived score.
+function distanceKmAndScore(shipmentOriginRegion, carrierOriginRegion) {
   const a = lookupCoords(shipmentOriginRegion);
   const b = lookupCoords(carrierOriginRegion);
-  if (!a || !b) return 50; // unknown region — neutral score
+  if (!a || !b) return { km: null, score: 50 }; // unknown region — neutral score, can't compute eligibility
   const km = haversineKm(a, b);
-  return round2(Math.max(0, 100 - km / 20));
+  const score = round2(Math.max(0, 100 - (km / MAX_PICKUP_DISTANCE_KM) * 100));
+  return { km: round2(km), score };
 }
 
 function scoreTiming(shipment, availability) {
@@ -66,7 +76,9 @@ async function rankCandidates(shipment, limit = 5) {
     const timing = scoreTiming(shipment, row);
     if (timing <= 0) continue;
 
-    const distance = scoreDistance(shipment.origin_region, row.origin_region);
+    const { km: distanceKm, score: distance } = distanceKmAndScore(shipment.origin_region, row.origin_region);
+    if (distanceKm != null && distanceKm > MAX_PICKUP_DISTANCE_KM) continue; // hard geographic cutoff
+
     const utilization = scoreUtilization(utilizationRatio);
     const reliabilityStats = await getReliabilityStats(row.carrier_id);
     const reliability = reliabilityStats.score;
@@ -92,6 +104,7 @@ async function rankCandidates(shipment, limit = 5) {
         truckCapacityKg: row.truck_capacity_kg,
         windowStart: row.window_start,
         windowEnd: row.window_end,
+        distanceKm,
       },
       scores: { total, distance, timing, utilization, reliability, acceptanceRate },
     });
@@ -101,4 +114,11 @@ async function rankCandidates(shipment, limit = 5) {
   return scored.slice(0, limit);
 }
 
-module.exports = { rankCandidates, scoreDistance, scoreTiming, scoreUtilization, getReliabilityStats };
+module.exports = {
+  rankCandidates,
+  distanceKmAndScore,
+  scoreTiming,
+  scoreUtilization,
+  getReliabilityStats,
+  MAX_PICKUP_DISTANCE_KM,
+};

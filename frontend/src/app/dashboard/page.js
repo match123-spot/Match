@@ -4,8 +4,14 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getMe, getMyRatingSummary } from '@/lib/api';
 
+const MAX_PICKUP_DISTANCE_KM = 150;
+
 const SCORE_WEIGHTS = [
-  { label: 'Distance fit', weight: 30, detail: 'How close the carrier truck is to the shipment origin' },
+  {
+    label: 'Distance fit',
+    weight: 30,
+    detail: `How close the carrier truck is to the shipment origin — trucks beyond ${MAX_PICKUP_DISTANCE_KM}km are excluded entirely, not just down-ranked`,
+  },
   { label: 'Timing overlap', weight: 25, detail: "How well the truck's available window covers the pickup window" },
   { label: 'Truck utilization', weight: 15, detail: "How full the truck runs — near-capacity loads score highest" },
   { label: 'Reliability', weight: 20, detail: "The carrier's average star rating from past shipments" },
@@ -65,6 +71,12 @@ function MatchingExplainer({ role }) {
       </div>
 
       <p className="mt-4 text-sm text-gray-500">
+        Geography is a hard cutoff before any weighting happens — a truck in Auckland is never considered for a
+        pickup out of Wellington, no matter how well it scores elsewhere. Only trucks within{' '}
+        {MAX_PICKUP_DISTANCE_KM}km of the shipment origin are eligible at all.
+      </p>
+
+      <p className="mt-3 text-sm text-gray-500">
         The five scores combine into a single 0–100 compatibility score. The top-ranked candidate is offered the
         match, and Claude writes a plain-language explanation of why it&rsquo;s a good (or borderline) fit.
       </p>

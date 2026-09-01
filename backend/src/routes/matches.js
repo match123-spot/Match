@@ -12,14 +12,28 @@ const {
 
 const router = express.Router();
 
-router.get('/candidates/:shipmentId', requireAuth, requireRole('shipper'), async (req, res) => {
+async function getOwnedShipment(shipmentId, userId) {
   const result = await pool.query(
     `SELECT s.* FROM shipments s
      JOIN shippers sh ON sh.id = s.shipper_id
      WHERE s.id = $1 AND sh.user_id = $2`,
-    [req.params.shipmentId, req.user.sub]
+    [shipmentId, userId]
   );
-  const shipment = result.rows[0];
+  return result.rows[0] ?? null;
+}
+
+// Cheap, no-Claude-call candidate scan — safe to poll frequently for a live
+// "who could take this right now" view. Reads real-time carrier availability.
+router.get('/live-candidates/:shipmentId', requireAuth, requireRole('shipper'), async (req, res) => {
+  const shipment = await getOwnedShipment(req.params.shipmentId, req.user.sub);
+  if (!shipment) return res.status(404).json({ error: 'Shipment not found' });
+
+  const candidates = await rankCandidates(shipment, 10);
+  res.json({ candidates });
+});
+
+router.get('/candidates/:shipmentId', requireAuth, requireRole('shipper'), async (req, res) => {
+  const shipment = await getOwnedShipment(req.params.shipmentId, req.user.sub);
   if (!shipment) return res.status(404).json({ error: 'Shipment not found' });
 
   const candidates = await rankCandidates(shipment);

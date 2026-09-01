@@ -53,6 +53,10 @@ export function getMatchCandidates(token, shipmentId) {
   return apiFetch(`/matches/candidates/${shipmentId}`, { token });
 }
 
+export function getLiveCandidates(token, shipmentId) {
+  return apiFetch(`/matches/live-candidates/${shipmentId}`, { token });
+}
+
 export function requestMatch(token, shipmentId) {
   return apiFetch('/matches', { method: 'POST', body: { shipmentId }, token });
 }

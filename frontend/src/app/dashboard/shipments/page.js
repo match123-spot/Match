@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { listShipments, pullMockShipments, getMatchCandidates, requestMatch } from '@/lib/api';
+import { listShipments, pullMockShipments, getMatchCandidates, getLiveCandidates, requestMatch } from '@/lib/api';
+
+const LIVE_POLL_MS = 15000;
+const MAX_PICKUP_DISTANCE_KM = 150;
 
 const SCORE_LABELS = {
   distance: 'Distance fit',
@@ -56,6 +59,53 @@ function RateComparison({ shipment }) {
   );
 }
 
+function proximityColor(km) {
+  if (km == null) return 'bg-gray-300';
+  if (km <= 50) return 'bg-green-500';
+  if (km <= 100) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+
+function LiveMatchesPanel({ candidates, checkedAt }) {
+  if (candidates == null) {
+    return <p className="mt-3 text-xs text-gray-400">Scanning live carrier availability…</p>;
+  }
+
+  return (
+    <div className="mt-3 rounded-md border border-gray-100 p-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-gray-700">
+          <span className="mr-1.5 inline-block h-2 w-2 animate-pulse rounded-full bg-green-500 align-middle" />
+          Potential matches — live from carrier availability
+        </p>
+        {checkedAt && <p className="text-[11px] text-gray-400">Checked {checkedAt.toLocaleTimeString()}</p>}
+      </div>
+      <p className="mt-0.5 text-[11px] text-gray-400">
+        Only trucks within {MAX_PICKUP_DISTANCE_KM}km of pickup are eligible — a truck in Auckland can&rsquo;t take a
+        load out of Wellington.
+      </p>
+
+      {candidates.length === 0 ? (
+        <p className="mt-2 text-xs text-gray-500">No eligible trucks in range right now.</p>
+      ) : (
+        <div className="mt-2 flex flex-col gap-1.5">
+          {candidates.slice(0, 4).map((c) => (
+            <div key={c.availabilityId} className="flex items-center gap-2 text-xs">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${proximityColor(c.availability.distanceKm)}`} />
+              <span className="w-32 shrink-0 truncate font-medium">{c.carrier.companyName}</span>
+              <span className="w-20 shrink-0 text-gray-500">
+                {c.availability.distanceKm != null ? `${c.availability.distanceKm}km` : '—'}
+              </span>
+              <span className="w-24 shrink-0 text-gray-500">{c.availability.truckType}</span>
+              <span className="ml-auto font-semibold">{c.scores.total}/100</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ScoreBar({ label, value }) {
   return (
     <div className="flex items-center gap-2 text-xs">
@@ -79,6 +129,13 @@ export default function ShipmentsPage() {
   const [matchLoadingId, setMatchLoadingId] = useState(null);
   const [requestingId, setRequestingId] = useState(null);
   const [requested, setRequested] = useState({});
+  const [liveCandidates, setLiveCandidates] = useState({});
+  const [liveCheckedAt, setLiveCheckedAt] = useState(null);
+  const shipmentsRef = useRef([]);
+
+  useEffect(() => {
+    shipmentsRef.current = shipments;
+  }, [shipments]);
 
   useEffect(() => {
     const tok = localStorage.getItem('fc_token');
@@ -97,6 +154,34 @@ export default function ShipmentsPage() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [router]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function pollLive() {
+      const pending = shipmentsRef.current.filter((s) => s.status === 'pending');
+      if (pending.length === 0) return;
+
+      const entries = await Promise.all(
+        pending.map((s) =>
+          getLiveCandidates(tokenRef.current, s.id)
+            .then((data) => [s.id, data.candidates])
+            .catch(() => [s.id, null])
+        )
+      );
+      if (!cancelled) {
+        setLiveCandidates((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+        setLiveCheckedAt(new Date());
+      }
+    }
+
+    pollLive();
+    const interval = setInterval(pollLive, LIVE_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [shipments]);
 
   async function handlePull() {
     setError('');
@@ -215,6 +300,10 @@ export default function ShipmentsPage() {
             </div>
 
             <RateComparison shipment={s} />
+
+            {s.status === 'pending' && (
+              <LiveMatchesPanel candidates={liveCandidates[s.id]} checkedAt={liveCheckedAt} />
+            )}
 
             {matchesByShipment[s.id] && (
               <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4">
