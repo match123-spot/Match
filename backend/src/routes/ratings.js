@@ -24,7 +24,7 @@ router.post('/', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'starRating must be between 1 and 5' });
   }
 
-  const resolved = await getMatchForUser(matchId, req.user.sub);
+  const resolved = await getMatchForUser(matchId, req.user.orgId);
   if (!resolved) return res.status(404).json({ error: 'Match not found' });
   const { match, role } = resolved;
 
@@ -70,7 +70,7 @@ router.post('/', requireAuth, async (req, res) => {
 
 router.get('/me/summary', requireAuth, async (req, res) => {
   if (req.user.role === 'carrier') {
-    const carrier = await pool.query('SELECT id FROM carriers WHERE user_id = $1', [req.user.sub]);
+    const carrier = await pool.query('SELECT id FROM carriers WHERE org_id = $1', [req.user.orgId]);
     const carrierId = carrier.rows[0]?.id;
     if (!carrierId) return res.status(404).json({ error: 'Carrier profile not found' });
 
@@ -87,7 +87,7 @@ router.get('/me/summary', requireAuth, async (req, res) => {
     return res.json({ role: 'carrier', summary: rows[0] });
   }
 
-  const shipper = await pool.query('SELECT id FROM shippers WHERE user_id = $1', [req.user.sub]);
+  const shipper = await pool.query('SELECT id FROM shippers WHERE org_id = $1', [req.user.orgId]);
   const shipperId = shipper.rows[0]?.id;
   if (!shipperId) return res.status(404).json({ error: 'Shipper profile not found' });
 

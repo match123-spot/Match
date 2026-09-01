@@ -27,6 +27,7 @@ async function maybeAutoApprove(match, shipment, carrierInfo) {
   const shipperResult = await pool.query('SELECT auto_approve_max_cost FROM shippers WHERE id = $1', [
     shipment.shipper_id,
   ]);
+  // System-initiated approval — no specific human, so approved_by stays null.
   const shipperThreshold = shipperResult.rows[0]?.auto_approve_max_cost;
   const carrierThreshold = carrierInfo.auto_approve_min_income;
 
@@ -80,13 +81,18 @@ async function createMatchForShipment(shipment, { rematchOf = null } = {}) {
   ]);
 
   const carrierResult = await pool.query(
-    `SELECT c.company_name, c.auto_approve_min_income, u.email AS carrier_email
-     FROM carriers c JOIN users u ON u.id = c.user_id WHERE c.id = $1`,
+    `SELECT o.company_name, c.auto_approve_min_income,
+            array_agg(u.email) AS carrier_emails
+     FROM carriers c
+     JOIN organizations o ON o.id = c.org_id
+     JOIN users u ON u.org_id = c.org_id
+     WHERE c.id = $1
+     GROUP BY o.company_name, c.auto_approve_min_income`,
     [match.carrier_id]
   );
   const carrierInfo = carrierResult.rows[0];
 
-  await sendMatchRequestEmail(carrierInfo.carrier_email, { shipment });
+  await sendMatchRequestEmail(carrierInfo.carrier_emails, { shipment });
   await maybeAutoApprove(match, shipment, carrierInfo);
 
   const finalResult = await pool.query('SELECT * FROM matches WHERE id = $1', [match.id]);
@@ -115,31 +121,39 @@ async function bookMatch(match) {
 
 async function sendBookingEmails(matchId) {
   const { rows } = await pool.query(
-    `SELECT s.*, us.email AS shipper_email, uc.email AS carrier_email, c.company_name AS carrier_company_name
+    `SELECT s.*, oc.company_name AS carrier_company_name,
+            array_agg(DISTINCT us.email) AS shipper_emails,
+            array_agg(DISTINCT uc.email) AS carrier_emails
      FROM matches m
      JOIN shipments s ON s.id = m.shipment_id
      JOIN shippers sh ON sh.id = s.shipper_id
-     JOIN users us ON us.id = sh.user_id
+     JOIN users us ON us.org_id = sh.org_id
      JOIN carriers c ON c.id = m.carrier_id
-     JOIN users uc ON uc.id = c.user_id
-     WHERE m.id = $1`,
+     JOIN organizations oc ON oc.id = c.org_id
+     JOIN users uc ON uc.org_id = c.org_id
+     WHERE m.id = $1
+     GROUP BY s.id, oc.company_name`,
     [matchId]
   );
   const ctx = rows[0];
   if (!ctx) return;
 
   await sendBookingConfirmationEmail({
-    shipperEmail: ctx.shipper_email,
-    carrierEmail: ctx.carrier_email,
+    shipperEmails: ctx.shipper_emails,
+    carrierEmails: ctx.carrier_emails,
     shipment: ctx,
     carrierCompanyName: ctx.carrier_company_name,
   });
 }
 
-/** Resolves whether `userId` is the shipper or the carrier on a given match. */
-async function getMatchForUser(matchId, userId) {
+/**
+ * Resolves whether `orgId` is the shipper org or the carrier org on a given
+ * match — any user belonging to that org can act on its behalf, not just
+ * whoever originally signed up.
+ */
+async function getMatchForUser(matchId, orgId) {
   const { rows } = await pool.query(
-    `SELECT m.*, sh.user_id AS shipper_user_id, c.user_id AS carrier_user_id
+    `SELECT m.*, sh.org_id AS shipper_org_id, c.org_id AS carrier_org_id
      FROM matches m
      JOIN shipments s ON s.id = m.shipment_id
      JOIN shippers sh ON sh.id = s.shipper_id
@@ -149,18 +163,19 @@ async function getMatchForUser(matchId, userId) {
   );
   const row = rows[0];
   if (!row) return null;
-  if (row.shipper_user_id === userId) return { match: row, role: 'shipper' };
-  if (row.carrier_user_id === userId) return { match: row, role: 'carrier' };
+  if (row.shipper_org_id === orgId) return { match: row, role: 'shipper' };
+  if (row.carrier_org_id === orgId) return { match: row, role: 'carrier' };
   return null;
 }
 
-async function approveMatch(matchId, role) {
-  const column = role === 'shipper' ? 'shipper_approved_at' : 'carrier_approved_at';
+async function approveMatch(matchId, role, approvingUserId = null) {
+  const atColumn = role === 'shipper' ? 'shipper_approved_at' : 'carrier_approved_at';
+  const byColumn = role === 'shipper' ? 'shipper_approved_by' : 'carrier_approved_by';
   const { rows } = await pool.query(
-    `UPDATE matches SET ${column} = now(), updated_at = now()
+    `UPDATE matches SET ${atColumn} = now(), ${byColumn} = $3, updated_at = now()
      WHERE id = $1 AND status = ANY($2) AND approval_deadline > now()
      RETURNING *`,
-    [matchId, OPEN_STATUSES]
+    [matchId, OPEN_STATUSES, approvingUserId]
   );
   const match = rows[0];
   if (!match) return null;

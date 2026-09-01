@@ -6,15 +6,15 @@ const router = express.Router();
 
 const TRUCK_TYPES = ['semi', 'B-double', 'rigid', 'refrigerated'];
 
-async function getCarrierIdForUser(userId) {
-  const result = await pool.query('SELECT id FROM carriers WHERE user_id = $1', [userId]);
+async function getCarrierIdForOrg(orgId) {
+  const result = await pool.query('SELECT id FROM carriers WHERE org_id = $1', [orgId]);
   return result.rows[0]?.id ?? null;
 }
 
 router.use(requireAuth, requireRole('carrier'));
 
 router.get('/me', async (req, res) => {
-  const carrierId = await getCarrierIdForUser(req.user.sub);
+  const carrierId = await getCarrierIdForOrg(req.user.orgId);
   if (!carrierId) return res.status(404).json({ error: 'Carrier profile not found' });
 
   const result = await pool.query(
@@ -39,7 +39,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'windowEnd must be after windowStart' });
   }
 
-  const carrierId = await getCarrierIdForUser(req.user.sub);
+  const carrierId = await getCarrierIdForOrg(req.user.orgId);
   if (!carrierId) return res.status(404).json({ error: 'Carrier profile not found' });
 
   try {
@@ -59,7 +59,7 @@ router.post('/', async (req, res) => {
 });
 
 router.delete('/:id', async (req, res) => {
-  const carrierId = await getCarrierIdForUser(req.user.sub);
+  const carrierId = await getCarrierIdForOrg(req.user.orgId);
   if (!carrierId) return res.status(404).json({ error: 'Carrier profile not found' });
 
   const result = await pool.query(

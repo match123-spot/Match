@@ -6,7 +6,10 @@ const router = express.Router();
 
 router.get('/me', requireAuth, async (req, res) => {
   const result = await pool.query(
-    'SELECT id, email, role, full_name, phone, created_at FROM users WHERE id = $1',
+    `SELECT u.id, u.email, u.role, u.full_name, u.phone, u.created_at,
+            u.org_id, o.status AS org_status, o.company_name AS org_company_name
+     FROM users u LEFT JOIN organizations o ON o.id = u.org_id
+     WHERE u.id = $1`,
     [req.user.sub]
   );
   const user = result.rows[0];

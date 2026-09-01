@@ -123,9 +123,10 @@ export default function DashboardPage() {
     getMe(token)
       .then((data) => {
         setUser(data.user);
+        if (data.user.role === 'admin') return null;
         return getMyRatingSummary(token);
       })
-      .then((data) => setRatingSummary(data))
+      .then((data) => data && setRatingSummary(data))
       .catch(() => {
         localStorage.removeItem('fc_token');
         localStorage.removeItem('fc_role');
@@ -154,6 +155,36 @@ export default function DashboardPage() {
         Signed in as <span className="font-medium">{user.role}</span> · {user.email}
       </p>
 
+      {user.role !== 'admin' && user.org_status !== 'approved' && (
+        <div className="mt-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          {user.org_status === 'pending' ? (
+            <>
+              <span className="font-medium">{user.org_company_name}</span> is pending admin approval. You can set up
+              your profile, but you won&rsquo;t appear in matching or be able to request matches until approved.
+            </>
+          ) : (
+            <>
+              <span className="font-medium">{user.org_company_name}</span> has been suspended and cannot transact.
+              Contact support if you believe this is a mistake.
+            </>
+          )}
+        </div>
+      )}
+
+      {user.role === 'admin' && (
+        <div className="mt-8 rounded-lg border border-gray-200 p-6">
+          <h2 className="font-medium">Admin</h2>
+          <a
+            href="/admin"
+            className="mt-4 inline-block rounded-md bg-black px-4 py-2 text-sm font-medium text-white"
+          >
+            Review organizations
+          </a>
+        </div>
+      )}
+
+      {user.role !== 'admin' && (
+      <>
       <div className="mt-8 rounded-lg border border-gray-200 p-6">
         {user.role === 'carrier' ? (
           <>
@@ -226,6 +257,8 @@ export default function DashboardPage() {
       </div>
 
       <MatchingExplainer role={user.role} />
+      </>
+      )}
     </main>
   );
 }

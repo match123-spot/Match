@@ -6,15 +6,15 @@ const { recommendPrice } = require('../services/claudeService');
 
 const router = express.Router();
 
-async function getShipperIdForUser(userId) {
-  const result = await pool.query('SELECT id FROM shippers WHERE user_id = $1', [userId]);
+async function getShipperIdForOrg(orgId) {
+  const result = await pool.query('SELECT id FROM shippers WHERE org_id = $1', [orgId]);
   return result.rows[0]?.id ?? null;
 }
 
 router.use(requireAuth, requireRole('shipper'));
 
 router.post('/mock-pull', async (req, res) => {
-  const shipperId = await getShipperIdForUser(req.user.sub);
+  const shipperId = await getShipperIdForOrg(req.user.orgId);
   if (!shipperId) return res.status(404).json({ error: 'Shipper profile not found' });
 
   const count = Math.min(Number(req.body?.count) || 3, 10);
@@ -78,7 +78,7 @@ router.post('/mock-pull', async (req, res) => {
 });
 
 router.get('/me', async (req, res) => {
-  const shipperId = await getShipperIdForUser(req.user.sub);
+  const shipperId = await getShipperIdForOrg(req.user.orgId);
   if (!shipperId) return res.status(404).json({ error: 'Shipper profile not found' });
 
   const result = await pool.query('SELECT * FROM shipments WHERE shipper_id = $1 ORDER BY created_at DESC', [

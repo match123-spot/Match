@@ -97,16 +97,14 @@ async function getReliabilityStats(carrierId) {
  */
 async function rankCandidates(shipment, limit = 5) {
   const requiresRefrigerated = shipment.truck_type_required === 'refrigerated';
+  const truckTypeClause = requiresRefrigerated ? `ca.truck_type = 'refrigerated'` : `ca.truck_type != 'refrigerated'`;
   const { rows } = await pool.query(
-    requiresRefrigerated
-      ? `SELECT ca.*, c.id AS carrier_id, c.company_name, c.base_location, c.historical_acceptance_rate
-         FROM carrier_availability ca
-         JOIN carriers c ON c.id = ca.carrier_id
-         WHERE ca.truck_type = 'refrigerated' AND ca.is_booked = false AND ca.available_date >= CURRENT_DATE`
-      : `SELECT ca.*, c.id AS carrier_id, c.company_name, c.base_location, c.historical_acceptance_rate
-         FROM carrier_availability ca
-         JOIN carriers c ON c.id = ca.carrier_id
-         WHERE ca.truck_type != 'refrigerated' AND ca.is_booked = false AND ca.available_date >= CURRENT_DATE`
+    `SELECT ca.*, c.id AS carrier_id, o.company_name, c.base_location, c.historical_acceptance_rate
+     FROM carrier_availability ca
+     JOIN carriers c ON c.id = ca.carrier_id
+     JOIN organizations o ON o.id = c.org_id
+     WHERE ${truckTypeClause} AND ca.is_booked = false AND ca.available_date >= CURRENT_DATE
+       AND o.status = 'approved'`
   );
 
   const requiredRank = TRUCK_CLASS_RANK[shipment.truck_type_required] ?? null;

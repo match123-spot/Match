@@ -12,12 +12,12 @@ const {
 
 const router = express.Router();
 
-async function getOwnedShipment(shipmentId, userId) {
+async function getOwnedShipment(shipmentId, orgId) {
   const result = await pool.query(
     `SELECT s.* FROM shipments s
      JOIN shippers sh ON sh.id = s.shipper_id
-     WHERE s.id = $1 AND sh.user_id = $2`,
-    [shipmentId, userId]
+     WHERE s.id = $1 AND sh.org_id = $2`,
+    [shipmentId, orgId]
   );
   return result.rows[0] ?? null;
 }
@@ -25,7 +25,7 @@ async function getOwnedShipment(shipmentId, userId) {
 // Cheap, no-Claude-call candidate scan — safe to poll frequently for a live
 // "who could take this right now" view. Reads real-time carrier availability.
 router.get('/live-candidates/:shipmentId', requireAuth, requireRole('shipper'), async (req, res) => {
-  const shipment = await getOwnedShipment(req.params.shipmentId, req.user.sub);
+  const shipment = await getOwnedShipment(req.params.shipmentId, req.user.orgId);
   if (!shipment) return res.status(404).json({ error: 'Shipment not found' });
 
   const candidates = await rankCandidates(shipment, 10);
@@ -33,7 +33,7 @@ router.get('/live-candidates/:shipmentId', requireAuth, requireRole('shipper'), 
 });
 
 router.get('/candidates/:shipmentId', requireAuth, requireRole('shipper'), async (req, res) => {
-  const shipment = await getOwnedShipment(req.params.shipmentId, req.user.sub);
+  const shipment = await getOwnedShipment(req.params.shipmentId, req.user.orgId);
   if (!shipment) return res.status(404).json({ error: 'Shipment not found' });
 
   const candidates = await rankCandidates(shipment);
@@ -63,12 +63,17 @@ router.post('/', requireAuth, requireRole('shipper'), async (req, res) => {
   const result = await pool.query(
     `SELECT s.* FROM shipments s
      JOIN shippers sh ON sh.id = s.shipper_id
-     WHERE s.id = $1 AND sh.user_id = $2`,
-    [shipmentId, req.user.sub]
+     WHERE s.id = $1 AND sh.org_id = $2`,
+    [shipmentId, req.user.orgId]
   );
   const shipment = result.rows[0];
   if (!shipment) return res.status(404).json({ error: 'Shipment not found' });
   if (shipment.status === 'booked') return res.status(409).json({ error: 'Shipment is already booked' });
+
+  const orgResult = await pool.query('SELECT status FROM organizations WHERE id = $1', [req.user.orgId]);
+  if (orgResult.rows[0]?.status !== 'approved') {
+    return res.status(403).json({ error: 'Your organization is pending admin approval and cannot request matches yet' });
+  }
 
   const match = await createMatchForShipment(shipment);
   if (!match) return res.status(404).json({ error: 'No eligible carrier availability found' });
@@ -82,7 +87,7 @@ const MATCH_SELECT = `
          s.distance_km, s.pallet_count, s.lead_time_hours, s.customer_name, s.current_lsp,
          s.expected_delivery_start, s.expected_delivery_end,
          s.contracted_rate, s.ai_recommended_rate, s.ai_rate_reasoning,
-         c.company_name AS carrier_company_name, c.base_location AS carrier_base_location,
+         oc.company_name AS carrier_company_name, c.base_location AS carrier_base_location,
          ca.origin_region AS availability_origin_region, ca.window_start AS availability_window_start,
          ca.window_end AS availability_window_end,
          cr.avg_star AS carrier_avg_star, cr.rating_count AS carrier_rating_count,
@@ -90,6 +95,7 @@ const MATCH_SELECT = `
   FROM matches m
   JOIN shipments s ON s.id = m.shipment_id
   JOIN carriers c ON c.id = m.carrier_id
+  JOIN organizations oc ON oc.id = c.org_id
   LEFT JOIN carrier_availability ca ON ca.id = m.carrier_availability_id
   LEFT JOIN LATERAL (
     SELECT AVG(star_rating) AS avg_star, COUNT(*) AS rating_count FROM ratings WHERE rated_carrier_id = c.id
@@ -103,13 +109,13 @@ router.get('/me', requireAuth, async (req, res) => {
   let query;
   if (req.user.role === 'shipper') {
     query = pool.query(
-      `${MATCH_SELECT} JOIN shippers sh ON sh.id = s.shipper_id WHERE sh.user_id = $1 ORDER BY m.created_at DESC`,
-      [req.user.sub]
+      `${MATCH_SELECT} JOIN shippers sh ON sh.id = s.shipper_id WHERE sh.org_id = $1 ORDER BY m.created_at DESC`,
+      [req.user.orgId]
     );
   } else {
     query = pool.query(
-      `${MATCH_SELECT} JOIN carriers cc ON cc.id = m.carrier_id WHERE cc.user_id = $1 ORDER BY m.created_at DESC`,
-      [req.user.sub]
+      `${MATCH_SELECT} JOIN carriers cc ON cc.id = m.carrier_id WHERE cc.org_id = $1 ORDER BY m.created_at DESC`,
+      [req.user.orgId]
     );
   }
   const { rows } = await query;
@@ -128,7 +134,7 @@ router.get('/me', requireAuth, async (req, res) => {
 });
 
 router.post('/:id/complete', requireAuth, async (req, res) => {
-  const resolved = await getMatchForUser(req.params.id, req.user.sub);
+  const resolved = await getMatchForUser(req.params.id, req.user.orgId);
   if (!resolved) return res.status(404).json({ error: 'Match not found' });
   if (resolved.match.status !== 'booked') {
     return res.status(409).json({ error: 'Only a booked match can be marked complete' });
@@ -141,17 +147,17 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
 });
 
 router.post('/:id/approve', requireAuth, async (req, res) => {
-  const resolved = await getMatchForUser(req.params.id, req.user.sub);
+  const resolved = await getMatchForUser(req.params.id, req.user.orgId);
   if (!resolved) return res.status(404).json({ error: 'Match not found' });
 
-  const match = await approveMatch(req.params.id, resolved.role);
+  const match = await approveMatch(req.params.id, resolved.role, req.user.sub);
   if (!match) return res.status(409).json({ error: 'Match is no longer open for approval' });
 
   res.json({ match });
 });
 
 router.post('/:id/reject', requireAuth, async (req, res) => {
-  const resolved = await getMatchForUser(req.params.id, req.user.sub);
+  const resolved = await getMatchForUser(req.params.id, req.user.orgId);
   if (!resolved) return res.status(404).json({ error: 'Match not found' });
 
   const result = await rejectMatch(req.params.id, resolved.role);

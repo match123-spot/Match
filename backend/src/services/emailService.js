@@ -21,9 +21,9 @@ function money(n) {
   return n == null ? 'TBC' : `$${Number(n).toFixed(2)} AUD`;
 }
 
-async function sendMatchRequestEmail(carrierEmail, { shipment }) {
+async function sendMatchRequestEmail(carrierEmails, { shipment }) {
   await send({
-    to: carrierEmail,
+    to: carrierEmails,
     subject: `New shipment match: ${shipment.origin_region} → ${shipment.destination_region}`,
     text: `A new shipment has been matched to your available truck.
 
@@ -37,7 +37,7 @@ You have 20 minutes to approve or reject this match in FreightCopilot before it'
   });
 }
 
-async function sendBookingConfirmationEmail({ shipperEmail, carrierEmail, shipment, carrierCompanyName }) {
+async function sendBookingConfirmationEmail({ shipperEmails, carrierEmails, shipment, carrierCompanyName }) {
   const subject = `Booking confirmed: ${shipment.origin_region} → ${shipment.destination_region}`;
   const savingsLine =
     shipment.contracted_rate != null && shipment.ai_recommended_rate != null
@@ -53,8 +53,8 @@ Carrier: ${carrierCompanyName}
 Pickup window: ${shipment.pickup_window_start} to ${shipment.pickup_window_end}`;
 
   await Promise.all([
-    send({ to: shipperEmail, subject, text: body }),
-    send({ to: carrierEmail, subject, text: body }),
+    send({ to: shipperEmails, subject, text: body }),
+    send({ to: carrierEmails, subject, text: body }),
   ]);
 }
 

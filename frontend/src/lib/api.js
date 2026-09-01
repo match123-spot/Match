@@ -104,3 +104,11 @@ export function getAvailableShipments(token) {
 export function getMyRatingSummary(token) {
   return apiFetch('/ratings/me/summary', { token });
 }
+
+export function listOrganizations(token, status) {
+  return apiFetch(`/admin/organizations${status ? `?status=${status}` : ''}`, { token });
+}
+
+export function updateOrganizationStatus(token, orgId, status) {
+  return apiFetch(`/admin/organizations/${orgId}`, { method: 'PATCH', body: { status }, token });
+}
