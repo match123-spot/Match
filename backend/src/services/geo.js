@@ -15,9 +15,33 @@ const REGION_COORDS = {
   'christchurch, nz': { lat: -43.5321, lng: 172.6362 },
 };
 
+// Country per region — used to keep mock shipments road-only. AU<->NZ needs a
+// sea/air leg (Tasman Sea), so those pairs are excluded from mock generation.
+// Interisland/Bass Strait RORO ferry lanes (Auckland/Wellington<->Christchurch,
+// mainland AU<->Hobart) count as road freight by industry convention — trucks
+// drive on and off, no different mode or customs process — so those stay in.
+const REGION_COUNTRY = {
+  'sydney, nsw': 'AU',
+  'melbourne, vic': 'AU',
+  'brisbane, qld': 'AU',
+  'perth, wa': 'AU',
+  'adelaide, sa': 'AU',
+  'canberra, act': 'AU',
+  'hobart, tas': 'AU',
+  'darwin, nt': 'AU',
+  'auckland, nz': 'NZ',
+  'wellington, nz': 'NZ',
+  'christchurch, nz': 'NZ',
+};
+
 function lookupCoords(regionName) {
   if (!regionName) return null;
   return REGION_COORDS[regionName.trim().toLowerCase()] ?? null;
+}
+
+function lookupCountry(regionName) {
+  if (!regionName) return null;
+  return REGION_COUNTRY[regionName.trim().toLowerCase()] ?? null;
 }
 
 function haversineKm(a, b) {
@@ -30,4 +54,4 @@ function haversineKm(a, b) {
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
-module.exports = { REGION_COORDS, lookupCoords, haversineKm };
+module.exports = { REGION_COORDS, lookupCoords, lookupCountry, haversineKm };

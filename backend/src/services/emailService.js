@@ -27,10 +27,10 @@ async function sendMatchRequestEmail(carrierEmail, { shipment }) {
     subject: `New shipment match: ${shipment.origin_region} → ${shipment.destination_region}`,
     text: `A new shipment has been matched to your available truck.
 
-Route: ${shipment.origin_region} -> ${shipment.destination_region}
-Weight: ${shipment.weight_kg}kg
+Route: ${shipment.origin_region} -> ${shipment.destination_region}${shipment.distance_km ? ` (${shipment.distance_km}km)` : ''}
+Weight: ${shipment.weight_kg}kg${shipment.pallet_count ? ` · ${shipment.pallet_count} pallets` : ''}
 Truck type: ${shipment.truck_type_required}
-Rate: ${money(shipment.quoted_rate)}
+Marketplace rate: ${money(shipment.ai_recommended_rate)}
 Pickup window: ${shipment.pickup_window_start} to ${shipment.pickup_window_end}
 
 You have 20 minutes to approve or reject this match in FreightCopilot before it's offered to another carrier.`,
@@ -39,12 +39,16 @@ You have 20 minutes to approve or reject this match in FreightCopilot before it'
 
 async function sendBookingConfirmationEmail({ shipperEmail, carrierEmail, shipment, carrierCompanyName }) {
   const subject = `Booking confirmed: ${shipment.origin_region} → ${shipment.destination_region}`;
+  const savingsLine =
+    shipment.contracted_rate != null && shipment.ai_recommended_rate != null
+      ? `\nSaved vs contracted rate: ${money(shipment.contracted_rate - shipment.ai_recommended_rate)}`
+      : '';
   const body = `Your shipment has been booked.
 
-Route: ${shipment.origin_region} -> ${shipment.destination_region}
-Weight: ${shipment.weight_kg}kg
+Route: ${shipment.origin_region} -> ${shipment.destination_region}${shipment.distance_km ? ` (${shipment.distance_km}km)` : ''}
+Weight: ${shipment.weight_kg}kg${shipment.pallet_count ? ` · ${shipment.pallet_count} pallets` : ''}
 Truck type: ${shipment.truck_type_required}
-Rate: ${money(shipment.quoted_rate)}
+Marketplace rate: ${money(shipment.ai_recommended_rate)}${savingsLine}
 Carrier: ${carrierCompanyName}
 Pickup window: ${shipment.pickup_window_start} to ${shipment.pickup_window_end}`;
 

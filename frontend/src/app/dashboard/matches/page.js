@@ -246,12 +246,20 @@ export default function MatchesPage() {
                 <div>
                   <p className="font-medium">
                     {m.origin_region} → {m.destination_region}
-                    {m.quoted_rate != null && (
-                      <span className="ml-2 font-normal text-gray-500">${Number(m.quoted_rate).toFixed(2)}</span>
+                    {m.ai_recommended_rate != null && (
+                      <span className="ml-2 font-normal text-gray-500">
+                        ${Number(m.ai_recommended_rate).toFixed(2)}
+                      </span>
+                    )}
+                    {m.contracted_rate != null && m.ai_recommended_rate != null && (
+                      <span className="ml-1 text-xs font-normal text-green-700">
+                        (vs ${Number(m.contracted_rate).toFixed(2)} contracted)
+                      </span>
                     )}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {m.weight_kg}kg · {m.truck_type_required} · {m.carrier_company_name}
+                    {m.weight_kg}kg{m.pallet_count != null ? ` · ${m.pallet_count} pallets` : ''} ·{' '}
+                    {m.truck_type_required} · {m.carrier_company_name}
                     {role === 'shipper' && m.carrier_rating_count > 0 && (
                       <span className="ml-1">
                         · ★ {Number(m.carrier_avg_star).toFixed(1)} ({m.carrier_rating_count})

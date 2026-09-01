@@ -12,6 +12,50 @@ const SCORE_LABELS = {
   acceptanceRate: 'Acceptance rate',
 };
 
+function fmtMoney(n) {
+  return n == null ? 'TBC' : `$${Number(n).toFixed(2)}`;
+}
+
+function fmtWindow(start, end) {
+  if (!start) return 'TBC';
+  const s = new Date(start);
+  const e = end ? new Date(end) : null;
+  const opts = { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' };
+  return e ? `${s.toLocaleString([], opts)} – ${e.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : s.toLocaleString([], opts);
+}
+
+function RateComparison({ shipment }) {
+  const contracted = shipment.contracted_rate != null ? Number(shipment.contracted_rate) : null;
+  const ai = shipment.ai_recommended_rate != null ? Number(shipment.ai_recommended_rate) : null;
+  const savings = contracted != null && ai != null ? contracted - ai : null;
+  const savingsPct = savings != null && contracted > 0 ? (savings / contracted) * 100 : null;
+
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-3 rounded-md bg-gray-50 p-3">
+      <div>
+        <p className="text-[11px] uppercase tracking-wide text-gray-400">
+          Contracted rate (current LSP{shipment.current_lsp ? `: ${shipment.current_lsp}` : ''})
+        </p>
+        <p className="text-lg font-semibold text-gray-700">{fmtMoney(contracted)}</p>
+      </div>
+      <div>
+        <p className="text-[11px] uppercase tracking-wide text-gray-400">AI marketplace rate</p>
+        <p className={`text-lg font-semibold ${savings != null && savings > 0 ? 'text-green-700' : 'text-gray-900'}`}>
+          {fmtMoney(ai)}
+        </p>
+      </div>
+      {savings != null && (
+        <p className="col-span-2 text-xs font-medium text-green-700">
+          {savings >= 0
+            ? `Our AI engine expects this load can be taken for ${savingsPct.toFixed(0)}% less than the current contracted rate — a saving of ${fmtMoney(savings)}.`
+            : `Our AI engine expects this load will cost ${fmtMoney(Math.abs(savings))} more than the contracted rate on this lane.`}
+        </p>
+      )}
+      {shipment.ai_rate_reasoning && <p className="col-span-2 text-xs italic text-gray-500">{shipment.ai_rate_reasoning}</p>}
+    </div>
+  );
+}
+
 function ScoreBar({ label, value }) {
   return (
     <div className="flex items-center gap-2 text-xs">
@@ -125,19 +169,24 @@ export default function ShipmentsPage() {
 
         {shipments.map((s) => (
           <div key={s.id} className="rounded-lg border border-gray-200 p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-start justify-between">
               <div>
                 <p className="font-medium">
                   {s.origin_region} → {s.destination_region}
-                  {s.quoted_rate != null && (
-                    <span className="ml-2 font-normal text-gray-500">${Number(s.quoted_rate).toFixed(2)}</span>
-                  )}
+                  {s.distance_km != null && <span className="font-normal text-gray-400"> · {s.distance_km}km</span>}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {s.weight_kg}kg · {s.truck_type_required} · {s.otm_shipment_ref} · status: {s.status}
+                  {s.weight_kg}kg{s.pallet_count != null ? ` · ${s.pallet_count} pallets` : ''} · {s.truck_type_required} ·{' '}
+                  {s.otm_shipment_ref} · status: {s.status}
                 </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  {s.customer_name && <>Customer: {s.customer_name} · </>}
+                  {s.lead_time_hours != null && <>Lead time: {Number(s.lead_time_hours).toFixed(0)}h · </>}
+                  Loading: {fmtWindow(s.pickup_window_start, s.pickup_window_end)}
+                </p>
+                <p className="text-xs text-gray-500">Delivery: {fmtWindow(s.expected_delivery_start, s.expected_delivery_end)}</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex shrink-0 gap-2">
                 <button
                   onClick={() => handleViewMatches(s.id)}
                   disabled={matchLoadingId === s.id}
@@ -164,6 +213,8 @@ export default function ShipmentsPage() {
                 )}
               </div>
             </div>
+
+            <RateComparison shipment={s} />
 
             {matchesByShipment[s.id] && (
               <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4">

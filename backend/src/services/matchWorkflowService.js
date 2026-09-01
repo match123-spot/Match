@@ -21,7 +21,7 @@ async function getExcludedAvailabilityIds(shipmentId) {
  * on the other side.
  */
 async function maybeAutoApprove(match, shipment, carrierInfo) {
-  const rate = shipment.quoted_rate;
+  const rate = shipment.ai_recommended_rate;
   if (rate == null) return;
 
   const shipperResult = await pool.query('SELECT auto_approve_max_cost FROM shippers WHERE id = $1', [

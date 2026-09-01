@@ -64,7 +64,9 @@ router.post('/', requireAuth, requireRole('shipper'), async (req, res) => {
 const MATCH_SELECT = `
   SELECT m.*, s.origin_region, s.destination_region, s.weight_kg, s.truck_type_required,
          s.pickup_window_start, s.pickup_window_end, s.otm_shipment_ref, s.status AS shipment_status,
-         s.quoted_rate,
+         s.distance_km, s.pallet_count, s.lead_time_hours, s.customer_name, s.current_lsp,
+         s.expected_delivery_start, s.expected_delivery_end,
+         s.contracted_rate, s.ai_recommended_rate, s.ai_rate_reasoning,
          c.company_name AS carrier_company_name, c.base_location AS carrier_base_location,
          ca.origin_region AS availability_origin_region, ca.window_start AS availability_window_start,
          ca.window_end AS availability_window_end,

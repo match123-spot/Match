@@ -31,8 +31,10 @@ router.get('/carriers', requireAuth, requireRole('shipper'), async (req, res) =>
 // Carriers see currently open shipments (not yet booked) to gauge demand.
 router.get('/shipments', requireAuth, requireRole('carrier'), async (req, res) => {
   const result = await pool.query(
-    `SELECT id, origin_region, destination_region, weight_kg, truck_type_required,
-            pickup_window_start, pickup_window_end, quoted_rate, rate_reasoning
+    `SELECT id, origin_region, destination_region, distance_km, weight_kg, pallet_count, truck_type_required,
+            customer_name, current_lsp, lead_time_hours,
+            pickup_window_start, pickup_window_end, expected_delivery_start, expected_delivery_end,
+            contracted_rate, ai_recommended_rate, ai_rate_reasoning
      FROM shipments
      WHERE status IN ('pending', 'matching')
      ORDER BY pickup_window_start`

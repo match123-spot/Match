@@ -75,15 +75,25 @@ export function ShipmentMap({ shipments }) {
               <div className="text-sm">
                 <p className="font-semibold">
                   {s.origin_region} → {s.destination_region}
+                  {s.distance_km != null && <span className="font-normal text-gray-400"> ({s.distance_km}km)</span>}
                 </p>
                 <p>
-                  {s.weight_kg}kg · {s.truck_type_required}
+                  {s.weight_kg}kg{s.pallet_count != null ? ` · ${s.pallet_count} pallets` : ''} · {s.truck_type_required}
                 </p>
-                {s.quoted_rate != null && (
-                  <p className="font-medium text-green-700">${Number(s.quoted_rate).toFixed(2)} AUD</p>
+                {s.customer_name && <p className="text-gray-500">Customer: {s.customer_name}</p>}
+                {s.contracted_rate != null && (
+                  <p className="text-gray-500">
+                    Contracted rate ({s.current_lsp ?? 'current LSP'}): ${Number(s.contracted_rate).toFixed(2)}
+                  </p>
                 )}
-                {s.rate_reasoning && <p className="mt-1 text-xs italic text-gray-500">{s.rate_reasoning}</p>}
-                <p className="text-gray-500">{fmtWindow(s.pickup_window_start, s.pickup_window_end)}</p>
+                {s.ai_recommended_rate != null && (
+                  <p className="font-medium text-green-700">AI marketplace rate: ${Number(s.ai_recommended_rate).toFixed(2)} AUD</p>
+                )}
+                {s.ai_rate_reasoning && <p className="mt-1 text-xs italic text-gray-500">{s.ai_rate_reasoning}</p>}
+                <p className="text-gray-500">Loading: {fmtWindow(s.pickup_window_start, s.pickup_window_end)}</p>
+                {s.expected_delivery_start && (
+                  <p className="text-gray-500">Delivery: {fmtWindow(s.expected_delivery_start, s.expected_delivery_end)}</p>
+                )}
               </div>
             </Popup>
           </CircleMarker>

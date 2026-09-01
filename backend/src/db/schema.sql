@@ -81,18 +81,26 @@ CREATE TABLE shipments (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   shipper_id          UUID NOT NULL REFERENCES shippers(id) ON DELETE CASCADE,
   otm_shipment_ref     TEXT, -- mocked OTM reference id
+  customer_name         TEXT, -- end customer this shipment is for (from OTM)
+  current_lsp           TEXT, -- shipper's incumbent carrier for this lane today (from OTM)
   origin_region        TEXT NOT NULL,
   origin_lat           DOUBLE PRECISION,
   origin_lng           DOUBLE PRECISION,
   destination_region    TEXT NOT NULL,
   destination_lat       DOUBLE PRECISION,
   destination_lng       DOUBLE PRECISION,
+  distance_km            NUMERIC(8,1), -- road distance, origin to destination
   weight_kg            INTEGER NOT NULL,
+  pallet_count           INTEGER, -- number of pallets in the load
   truck_type_required   TEXT NOT NULL,
-  pickup_window_start   TIMESTAMPTZ NOT NULL,
+  lead_time_hours        NUMERIC(6,1), -- notice given: hours between order and pickup window start
+  pickup_window_start   TIMESTAMPTZ NOT NULL, -- expected loading window
   pickup_window_end     TIMESTAMPTZ NOT NULL,
-  quoted_rate           NUMERIC(10,2), -- AI-recommended freight rate (AUD), drives auto-approval thresholds
-  rate_reasoning        TEXT, -- Claude's rationale for the recommended rate
+  expected_delivery_start TIMESTAMPTZ, -- expected arrival window at destination
+  expected_delivery_end   TIMESTAMPTZ,
+  contracted_rate        NUMERIC(10,2), -- what the shipper already pays current_lsp for this lane (from OTM)
+  ai_recommended_rate    NUMERIC(10,2), -- what our AI engine expects this load can be taken for in the marketplace
+  ai_rate_reasoning      TEXT, -- Claude's rationale for the recommended rate
   status                TEXT NOT NULL DEFAULT 'pending'
                           CHECK (status IN ('pending', 'matching', 'awaiting_approval', 'booked', 'cancelled', 'completed')),
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
