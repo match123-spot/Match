@@ -96,3 +96,7 @@ export function getAvailableCarriers(token) {
 export function getAvailableShipments(token) {
   return apiFetch('/map/shipments', { token });
 }
+
+export function getMyRatingSummary(token) {
+  return apiFetch('/ratings/me/summary', { token });
+}

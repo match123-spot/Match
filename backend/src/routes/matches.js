@@ -67,11 +67,19 @@ const MATCH_SELECT = `
          s.quoted_rate,
          c.company_name AS carrier_company_name, c.base_location AS carrier_base_location,
          ca.origin_region AS availability_origin_region, ca.window_start AS availability_window_start,
-         ca.window_end AS availability_window_end
+         ca.window_end AS availability_window_end,
+         cr.avg_star AS carrier_avg_star, cr.rating_count AS carrier_rating_count,
+         sr.avg_star AS shipper_avg_star, sr.rating_count AS shipper_rating_count
   FROM matches m
   JOIN shipments s ON s.id = m.shipment_id
   JOIN carriers c ON c.id = m.carrier_id
   LEFT JOIN carrier_availability ca ON ca.id = m.carrier_availability_id
+  LEFT JOIN LATERAL (
+    SELECT AVG(star_rating) AS avg_star, COUNT(*) AS rating_count FROM ratings WHERE rated_carrier_id = c.id
+  ) cr ON true
+  LEFT JOIN LATERAL (
+    SELECT AVG(star_rating) AS avg_star, COUNT(*) AS rating_count FROM ratings WHERE rated_shipper_id = s.shipper_id
+  ) sr ON true
 `;
 
 router.get('/me', requireAuth, async (req, res) => {

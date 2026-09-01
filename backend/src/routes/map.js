@@ -10,9 +10,13 @@ router.get('/carriers', requireAuth, requireRole('shipper'), async (req, res) =>
   const result = await pool.query(
     `SELECT ca.id AS availability_id, ca.origin_region, ca.truck_type, ca.truck_capacity_kg,
             ca.window_start, ca.window_end,
-            c.id AS carrier_id, c.company_name, c.historical_acceptance_rate
+            c.id AS carrier_id, c.company_name, c.historical_acceptance_rate,
+            r.avg_star, r.rating_count
      FROM carrier_availability ca
      JOIN carriers c ON c.id = ca.carrier_id
+     LEFT JOIN LATERAL (
+       SELECT AVG(star_rating) AS avg_star, COUNT(*) AS rating_count FROM ratings WHERE rated_carrier_id = c.id
+     ) r ON true
      WHERE ca.is_booked = false AND ca.window_end > now()
      ORDER BY ca.window_start`
   );

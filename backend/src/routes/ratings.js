@@ -68,6 +68,41 @@ router.post('/', requireAuth, async (req, res) => {
   res.status(201).json({ rating: result.rows[0] });
 });
 
+router.get('/me/summary', requireAuth, async (req, res) => {
+  if (req.user.role === 'carrier') {
+    const carrier = await pool.query('SELECT id FROM carriers WHERE user_id = $1', [req.user.sub]);
+    const carrierId = carrier.rows[0]?.id;
+    if (!carrierId) return res.status(404).json({ error: 'Carrier profile not found' });
+
+    const { rows } = await pool.query(
+      `SELECT
+         COUNT(*) AS count,
+         AVG(star_rating) AS avg_star,
+         AVG(CASE WHEN on_time THEN 1 ELSE 0 END) AS on_time_rate,
+         AVG(CASE WHEN completed THEN 1 ELSE 0 END) AS completion_rate,
+         AVG(CASE WHEN had_damage_or_complaint THEN 1 ELSE 0 END) AS damage_complaint_rate
+       FROM ratings WHERE rated_carrier_id = $1`,
+      [carrierId]
+    );
+    return res.json({ role: 'carrier', summary: rows[0] });
+  }
+
+  const shipper = await pool.query('SELECT id FROM shippers WHERE user_id = $1', [req.user.sub]);
+  const shipperId = shipper.rows[0]?.id;
+  if (!shipperId) return res.status(404).json({ error: 'Shipper profile not found' });
+
+  const { rows } = await pool.query(
+    `SELECT
+       COUNT(*) AS count,
+       AVG(star_rating) AS avg_star,
+       AVG(response_time_minutes) AS avg_response_time_minutes,
+       AVG(CASE WHEN was_cancelled THEN 1 ELSE 0 END) AS cancellation_rate
+     FROM ratings WHERE rated_shipper_id = $1`,
+    [shipperId]
+  );
+  res.json({ role: 'shipper', summary: rows[0] });
+});
+
 router.get('/carrier/:carrierId/summary', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT

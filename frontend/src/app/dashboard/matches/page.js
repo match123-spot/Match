@@ -252,6 +252,16 @@ export default function MatchesPage() {
                   </p>
                   <p className="text-xs text-gray-500">
                     {m.weight_kg}kg · {m.truck_type_required} · {m.carrier_company_name}
+                    {role === 'shipper' && m.carrier_rating_count > 0 && (
+                      <span className="ml-1">
+                        · ★ {Number(m.carrier_avg_star).toFixed(1)} ({m.carrier_rating_count})
+                      </span>
+                    )}
+                    {role === 'carrier' && m.shipper_rating_count > 0 && (
+                      <span className="ml-1">
+                        · Shipper ★ {Number(m.shipper_avg_star).toFixed(1)} ({m.shipper_rating_count})
+                      </span>
+                    )}
                   </p>
                 </div>
                 <p className="text-sm font-semibold">{m.score_total}/100</p>

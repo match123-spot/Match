@@ -2,11 +2,97 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getMe } from '@/lib/api';
+import { getMe, getMyRatingSummary } from '@/lib/api';
+
+const SCORE_WEIGHTS = [
+  { label: 'Distance fit', weight: 30, detail: 'How close the carrier truck is to the shipment origin' },
+  { label: 'Timing overlap', weight: 25, detail: "How well the truck's available window covers the pickup window" },
+  { label: 'Truck utilization', weight: 15, detail: "How full the truck runs — near-capacity loads score highest" },
+  { label: 'Reliability', weight: 20, detail: "The carrier's average star rating from past shipments" },
+  { label: 'Acceptance rate', weight: 10, detail: "The carrier's historical rate of accepting offered matches" },
+];
+
+function StarSummary({ summary }) {
+  if (!summary || Number(summary.count) === 0) {
+    return <p className="text-sm text-gray-500">No ratings yet — complete a shipment to start building your reputation.</p>;
+  }
+  const stars = Math.round(Number(summary.avg_star));
+  return (
+    <div className="text-sm">
+      <p className="font-medium">
+        {'★'.repeat(stars)}
+        {'☆'.repeat(5 - stars)}{' '}
+        <span className="font-normal text-gray-500">
+          {Number(summary.avg_star).toFixed(1)} ({summary.count} rating{summary.count === '1' ? '' : 's'})
+        </span>
+      </p>
+      {summary.role === 'carrier' ? (
+        <p className="mt-1 text-gray-500">
+          On-time {Math.round(Number(summary.on_time_rate) * 100)}% · Completion{' '}
+          {Math.round(Number(summary.completion_rate) * 100)}% · Damage/complaint{' '}
+          {Math.round(Number(summary.damage_complaint_rate) * 100)}%
+        </p>
+      ) : (
+        <p className="mt-1 text-gray-500">
+          Avg response {Math.round(Number(summary.avg_response_time_minutes) || 0)}min · Cancellation{' '}
+          {Math.round(Number(summary.cancellation_rate) * 100)}%
+        </p>
+      )}
+    </div>
+  );
+}
+
+function MatchingExplainer({ role }) {
+  return (
+    <div className="mt-8 rounded-lg border border-gray-200 p-6">
+      <h2 className="font-medium">How AI matching works</h2>
+      <p className="mt-1 text-sm text-gray-500">
+        {role === 'carrier'
+          ? 'Every shipment a shipper requests a match for is scored against your open truck availability entries.'
+          : 'When you request a match, every open carrier truck is scored against your shipment.'}
+      </p>
+
+      <div className="mt-4 flex flex-col gap-2">
+        {SCORE_WEIGHTS.map((s) => (
+          <div key={s.label} className="flex items-center gap-3 text-sm">
+            <span className="w-14 shrink-0 text-right font-semibold">{s.weight}%</span>
+            <div>
+              <span className="font-medium">{s.label}</span>
+              <span className="text-gray-500"> — {s.detail}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-4 text-sm text-gray-500">
+        The five scores combine into a single 0–100 compatibility score. The top-ranked candidate is offered the
+        match, and Claude writes a plain-language explanation of why it&rsquo;s a good (or borderline) fit.
+      </p>
+
+      <p className="mt-3 text-sm text-gray-500">
+        Claude also recommends the freight rate for{' '}
+        {role === 'carrier' ? 'shipments before they reach you' : 'each shipment you pull'}, grounded by a
+        distance-and-weight formula so it stays realistic rather than guessing freely.
+      </p>
+
+      <p className="mt-3 text-sm text-gray-500">
+        Once a match is offered,{' '}
+        {role === 'carrier' ? 'you and the shipper' : 'you and the carrier'} both have 20 minutes to approve. If
+        either side rejects or the window lapses, the system automatically tries the next-best candidate — no
+        manual re-matching needed. You can also set an auto-approval threshold (in{' '}
+        <a href="/dashboard/settings" className="underline">
+          Auto-approval
+        </a>
+        ) so matches that clear your price bar approve themselves instantly.
+      </p>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
+  const [ratingSummary, setRatingSummary] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -16,7 +102,11 @@ export default function DashboardPage() {
       return;
     }
     getMe(token)
-      .then((data) => setUser(data.user))
+      .then((data) => {
+        setUser(data.user);
+        return getMyRatingSummary(token);
+      })
+      .then((data) => setRatingSummary(data))
       .catch(() => {
         localStorage.removeItem('fc_token');
         localStorage.removeItem('fc_role');
@@ -108,6 +198,15 @@ export default function DashboardPage() {
           </>
         )}
       </div>
+
+      <div className="mt-8 rounded-lg border border-gray-200 p-6">
+        <h2 className="font-medium">Your reputation</h2>
+        <div className="mt-3">
+          <StarSummary summary={ratingSummary?.summary ? { ...ratingSummary.summary, role: ratingSummary.role } : null} />
+        </div>
+      </div>
+
+      <MatchingExplainer role={user.role} />
     </main>
   );
 }

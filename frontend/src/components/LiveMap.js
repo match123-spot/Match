@@ -37,6 +37,11 @@ export function CarrierMap({ carriers }) {
               <p className="text-gray-500">{c.origin_region}</p>
               <p className="text-gray-500">{fmtWindow(c.window_start, c.window_end)}</p>
               <p className="text-gray-500">Acceptance rate: {c.historical_acceptance_rate}%</p>
+              {c.rating_count > 0 && (
+                <p className="text-gray-500">
+                  ★ {Number(c.avg_star).toFixed(1)} ({c.rating_count} rating{c.rating_count === 1 ? '' : 's'})
+                </p>
+              )}
             </div>
           </Popup>
         </CircleMarker>
