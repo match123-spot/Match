@@ -47,6 +47,7 @@ router.get('/candidates/:shipmentId', requireAuth, requireRole('shipper'), async
     carrier: top.carrier,
     availability: top.availability,
     scores: top.scores,
+    truckType: top.truckType,
   });
 
   res.json({

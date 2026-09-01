@@ -8,6 +8,23 @@ const { lookupCoords, haversineKm } = require('./geo');
 // score, favouring the closest truck.
 const MAX_PICKUP_DISTANCE_KM = 150;
 
+// Body-type "size class" — used to detect when a load could move on a
+// smaller (cheaper) truck than the shipper originally specified, or would
+// need a bigger one. Refrigerated is a separate axis (temperature control,
+// not size) so it's excluded from this ranking and never substituted.
+const TRUCK_CLASS_RANK = { rigid: 1, semi: 2, 'B-double': 3 };
+
+// Rough relative linehaul rate multiplier by truck class, used only to
+// estimate the savings/premium of a right-sized substitution — not a real
+// rate lookup, just a heuristic anchor consistent with the premiums Claude's
+// pricing prompt already reasons about.
+const TRUCK_RATE_MULTIPLIER = { rigid: 1.0, semi: 1.12, 'B-double': 1.28, refrigerated: 1.2 };
+
+// Typical AU/NZ pallet capacity by truck type — a load can be pallet-bound
+// before it's weight-bound (e.g. light but bulky freight), so utilization
+// checks both and takes whichever constraint is tighter.
+const PALLET_CAPACITY = { rigid: 12, semi: 24, 'B-double': 34, refrigerated: 20 };
+
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
@@ -41,6 +58,17 @@ function scoreUtilization(ratio) {
   return round2(Math.min(100, (ratio / 0.85) * 100));
 }
 
+// A load can be bound by weight or by pallet slots, whichever is tighter —
+// e.g. 15 pallets of light freight fills a rigid's pallet capacity long
+// before it hits the weight limit. Returns the binding ratio.
+function utilizationRatio(shipment, availabilityRow) {
+  const weightRatio = shipment.weight_kg / availabilityRow.truck_capacity_kg;
+  if (shipment.pallet_count == null) return weightRatio;
+  const palletCapacity = PALLET_CAPACITY[availabilityRow.truck_type] ?? 24;
+  const palletRatio = shipment.pallet_count / palletCapacity;
+  return Math.max(weightRatio, palletRatio);
+}
+
 async function getReliabilityStats(carrierId) {
   const { rows } = await pool.query(
     `SELECT AVG(star_rating) AS avg_rating, COUNT(*) AS count FROM ratings WHERE rated_carrier_id = $1`,
@@ -58,20 +86,39 @@ async function getReliabilityStats(carrierId) {
  * Ranks eligible carrier_availability entries against a shipment using the
  * weighted scoring model: distance 30%, timing 25%, utilization 15%,
  * reliability 20%, historical acceptance rate 10%.
+ *
+ * Truck type eligibility is capacity-based, not a rigid category match:
+ * a refrigerated load requires a refrigerated truck (temperature control
+ * can't be substituted), but otherwise any rigid/semi/B-double with enough
+ * capacity is eligible — including a *smaller* truck than the shipper
+ * originally specified. Utilization scoring then naturally favours a
+ * right-sized truck over an under-filled bigger one, and the result is
+ * flagged as a `truckType.match: 'downsize'` recommendation.
  */
 async function rankCandidates(shipment, limit = 5) {
+  const requiresRefrigerated = shipment.truck_type_required === 'refrigerated';
   const { rows } = await pool.query(
-    `SELECT ca.*, c.id AS carrier_id, c.company_name, c.base_location, c.historical_acceptance_rate
-     FROM carrier_availability ca
-     JOIN carriers c ON c.id = ca.carrier_id
-     WHERE ca.truck_type = $1 AND ca.is_booked = false AND ca.available_date >= CURRENT_DATE`,
-    [shipment.truck_type_required]
+    requiresRefrigerated
+      ? `SELECT ca.*, c.id AS carrier_id, c.company_name, c.base_location, c.historical_acceptance_rate
+         FROM carrier_availability ca
+         JOIN carriers c ON c.id = ca.carrier_id
+         WHERE ca.truck_type = 'refrigerated' AND ca.is_booked = false AND ca.available_date >= CURRENT_DATE`
+      : `SELECT ca.*, c.id AS carrier_id, c.company_name, c.base_location, c.historical_acceptance_rate
+         FROM carrier_availability ca
+         JOIN carriers c ON c.id = ca.carrier_id
+         WHERE ca.truck_type != 'refrigerated' AND ca.is_booked = false AND ca.available_date >= CURRENT_DATE`
   );
+
+  const requiredRank = TRUCK_CLASS_RANK[shipment.truck_type_required] ?? null;
 
   const scored = [];
   for (const row of rows) {
-    const utilizationRatio = shipment.weight_kg / row.truck_capacity_kg;
-    if (utilizationRatio > 1) continue;
+    // Hard cutoff is weight only — that's the carrier's actual declared
+    // capacity. Pallet capacity below is a rough per-category estimate (real
+    // trucks vary a lot by deck length), so it informs the utilization score
+    // but shouldn't alone disqualify a candidate that fits on weight.
+    const weightRatio = shipment.weight_kg / row.truck_capacity_kg;
+    if (weightRatio > 1) continue;
 
     const timing = scoreTiming(shipment, row);
     if (timing <= 0) continue;
@@ -79,7 +126,7 @@ async function rankCandidates(shipment, limit = 5) {
     const { km: distanceKm, score: distance } = distanceKmAndScore(shipment.origin_region, row.origin_region);
     if (distanceKm != null && distanceKm > MAX_PICKUP_DISTANCE_KM) continue; // hard geographic cutoff
 
-    const utilization = scoreUtilization(utilizationRatio);
+    const utilization = scoreUtilization(utilizationRatio(shipment, row));
     const reliabilityStats = await getReliabilityStats(row.carrier_id);
     const reliability = reliabilityStats.score;
     const acceptanceRate = round2(Number(row.historical_acceptance_rate));
@@ -87,6 +134,20 @@ async function rankCandidates(shipment, limit = 5) {
     const total = round2(
       distance * 0.3 + timing * 0.25 + utilization * 0.15 + reliability * 0.2 + acceptanceRate * 0.1
     );
+
+    const offeredRank = TRUCK_CLASS_RANK[row.truck_type] ?? null;
+    let truckTypeMatch = 'exact';
+    if (requiredRank != null && offeredRank != null) {
+      if (offeredRank < requiredRank) truckTypeMatch = 'downsize';
+      else if (offeredRank > requiredRank) truckTypeMatch = 'upsize';
+    }
+
+    let estimatedRate = null;
+    if (truckTypeMatch !== 'exact' && shipment.ai_recommended_rate != null) {
+      const fromMultiplier = TRUCK_RATE_MULTIPLIER[shipment.truck_type_required] ?? 1;
+      const toMultiplier = TRUCK_RATE_MULTIPLIER[row.truck_type] ?? 1;
+      estimatedRate = round2((Number(shipment.ai_recommended_rate) / fromMultiplier) * toMultiplier);
+    }
 
     scored.push({
       availabilityId: row.id,
@@ -106,6 +167,12 @@ async function rankCandidates(shipment, limit = 5) {
         windowEnd: row.window_end,
         distanceKm,
       },
+      truckType: {
+        required: shipment.truck_type_required,
+        offered: row.truck_type,
+        match: truckTypeMatch,
+        estimatedRate,
+      },
       scores: { total, distance, timing, utilization, reliability, acceptanceRate },
     });
   }
@@ -119,6 +186,10 @@ module.exports = {
   distanceKmAndScore,
   scoreTiming,
   scoreUtilization,
+  utilizationRatio,
   getReliabilityStats,
   MAX_PICKUP_DISTANCE_KM,
+  TRUCK_CLASS_RANK,
+  TRUCK_RATE_MULTIPLIER,
+  PALLET_CAPACITY,
 };

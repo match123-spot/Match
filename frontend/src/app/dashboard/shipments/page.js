@@ -90,14 +90,28 @@ function LiveMatchesPanel({ candidates, checkedAt }) {
       ) : (
         <div className="mt-2 flex flex-col gap-1.5">
           {candidates.slice(0, 4).map((c) => (
-            <div key={c.availabilityId} className="flex items-center gap-2 text-xs">
-              <span className={`h-2 w-2 shrink-0 rounded-full ${proximityColor(c.availability.distanceKm)}`} />
-              <span className="w-32 shrink-0 truncate font-medium">{c.carrier.companyName}</span>
-              <span className="w-20 shrink-0 text-gray-500">
-                {c.availability.distanceKm != null ? `${c.availability.distanceKm}km` : '—'}
-              </span>
-              <span className="w-24 shrink-0 text-gray-500">{c.availability.truckType}</span>
-              <span className="ml-auto font-semibold">{c.scores.total}/100</span>
+            <div key={c.availabilityId}>
+              <div className="flex items-center gap-2 text-xs">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${proximityColor(c.availability.distanceKm)}`} />
+                <span className="w-32 shrink-0 truncate font-medium">{c.carrier.companyName}</span>
+                <span className="w-20 shrink-0 text-gray-500">
+                  {c.availability.distanceKm != null ? `${c.availability.distanceKm}km` : '—'}
+                </span>
+                <span className="w-24 shrink-0 text-gray-500">{c.availability.truckType}</span>
+                <span className="ml-auto font-semibold">{c.scores.total}/100</span>
+              </div>
+              {c.truckType?.match === 'downsize' && (
+                <p className="ml-4 mt-0.5 text-[11px] text-green-700">
+                  💡 Right-sized: fits on a {c.truckType.offered} instead of the requested {c.truckType.required}
+                  {c.truckType.estimatedRate != null && ` — est. $${c.truckType.estimatedRate.toFixed(2)}`}
+                </p>
+              )}
+              {c.truckType?.match === 'upsize' && (
+                <p className="ml-4 mt-0.5 text-[11px] text-amber-600">
+                  Uses a larger {c.truckType.offered} than the requested {c.truckType.required}
+                  {c.truckType.estimatedRate != null && ` — est. $${c.truckType.estimatedRate.toFixed(2)}`}
+                </p>
+              )}
             </div>
           ))}
         </div>
@@ -315,10 +329,27 @@ export default function ShipmentsPage() {
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium">
                           #{idx + 1} {c.carrier.companyName}{' '}
-                          <span className="font-normal text-gray-500">({c.availability.originRegion})</span>
+                          <span className="font-normal text-gray-500">
+                            ({c.availability.originRegion} · {c.availability.truckType})
+                          </span>
                         </p>
                         <p className="text-sm font-semibold">{c.scores.total}/100</p>
                       </div>
+                      {c.truckType?.match === 'downsize' && (
+                        <p className="mt-1 text-xs font-medium text-green-700">
+                          💡 Right-sizing recommendation: this {c.truckType.offered} comfortably covers the load —
+                          no need for the requested {c.truckType.required}
+                          {c.truckType.estimatedRate != null &&
+                            `, estimated $${c.truckType.estimatedRate.toFixed(2)} vs $${Number(s.ai_recommended_rate).toFixed(2)}`}
+                          .
+                        </p>
+                      )}
+                      {c.truckType?.match === 'upsize' && (
+                        <p className="mt-1 text-xs text-amber-600">
+                          Uses a {c.truckType.offered}, larger than the requested {c.truckType.required} — a valid
+                          fallback, likely at a premium.
+                        </p>
+                      )}
                       <div className="mt-2 flex flex-col gap-1">
                         {Object.entries(SCORE_LABELS).map(([key, label]) => (
                           <ScoreBar key={key} label={label} value={c.scores[key]} />

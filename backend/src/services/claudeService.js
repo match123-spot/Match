@@ -7,19 +7,26 @@ const client = new Anthropic({
     : undefined,
 });
 
-async function explainMatch({ shipment, carrier, availability, scores }) {
+async function explainMatch({ shipment, carrier, availability, scores, truckType }) {
   try {
+    const truckTypeNote =
+      truckType?.match === 'downsize'
+        ? `\nNote: the shipment was specified as requiring a ${truckType.required}, but this carrier's ${truckType.offered} has enough capacity for the actual load — flag this as a right-sizing opportunity (likely a cheaper truck class) in your explanation.`
+        : truckType?.match === 'upsize'
+          ? `\nNote: this carrier's ${truckType.offered} is a larger class than the ${truckType.required} the shipment specified — mention that it's a valid but likely more expensive fallback.`
+          : '';
+
     const msg = await client.messages.create({
       model: 'claude-sonnet-5',
-      max_tokens: 200,
+      max_tokens: 220,
       messages: [
         {
           role: 'user',
           content: `You are helping a freight dispatcher understand a proposed carrier match. Explain in 2-3 concise, plain-language sentences why this is (or isn't) a strong match. Write the explanation directly, no preamble.
 
-Shipment: ${shipment.origin_region} -> ${shipment.destination_region}, ${shipment.weight_kg}kg, requires ${shipment.truck_type_required}, pickup window ${shipment.pickup_window_start} to ${shipment.pickup_window_end}.
+Shipment: ${shipment.origin_region} -> ${shipment.destination_region}, ${shipment.weight_kg}kg${shipment.pallet_count ? ` / ${shipment.pallet_count} pallets` : ''}, requires ${shipment.truck_type_required}, pickup window ${shipment.pickup_window_start} to ${shipment.pickup_window_end}.
 Carrier: ${carrier.companyName}, based in ${carrier.baseLocation}, historical acceptance rate ${carrier.historicalAcceptanceRate}%. Offering a ${availability.truckType} (capacity ${availability.truckCapacityKg}kg) out of ${availability.originRegion}, available ${availability.windowStart} to ${availability.windowEnd}.
-Scores (0-100 each): overall ${scores.total}, distance fit ${scores.distance}, timing overlap ${scores.timing}, truck utilization ${scores.utilization}, reliability ${scores.reliability}, acceptance rate ${scores.acceptanceRate}.`,
+Scores (0-100 each): overall ${scores.total}, distance fit ${scores.distance}, timing overlap ${scores.timing}, truck utilization ${scores.utilization}, reliability ${scores.reliability}, acceptance rate ${scores.acceptanceRate}.${truckTypeNote}`,
         },
       ],
     });
