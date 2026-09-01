@@ -84,21 +84,21 @@ Currently hardcoded across the codebase:
 
 This is mechanical and low-risk; I can do this refactor as soon as you want, independent of the org migration.
 
-## 6. Testing & CI
+## 6. Testing & CI — done
 
-**Decision: full test suite, per the v2 brief §8.3** — required before the MVP is considered complete, not deferred:
+**Full test suite, per the v2 brief §8.3**, using Node's built-in `node:test` (no Jest/Vitest dependency needed) plus `supertest` for HTTP-level API tests:
 
-1. **Unit tests** for the matching engine (`matchingService.js`: `scoreTiming`, `scoreUtilization`, `utilizationRatio`, `distanceKmAndScore`, the right-sizing classification logic) and the approval workflow (`matchWorkflowService.js`: dual-approval state transitions, timeout → auto-rematch, auto-approval threshold checks). The config extraction in §5 makes this practical — scoring functions become pure and importable without a live DB.
-2. **Integration tests** for API endpoints — auth, availability, shipments, matches, ratings — against a real (throwaway) Postgres, not mocked.
-3. **One end-to-end test** covering the full flow: signup → carrier posts availability → shipper pulls a mock shipment → match requested → dual approval → booking → rating. This is the "MVP complete" gate the brief describes.
+1. **Unit tests** (`backend/test/unit/`) — pure-function tests for the matching engine (`scoreTiming`, `scoreUtilization`, `utilizationRatio`, `distanceKmAndScore`, truck-class ranking) with no DB, plus DB-backed tests for `rankCandidates` (geographic cutoff, org-approval gate, right-sizing) and the full approval workflow (`matchWorkflowService.js`: dual-approval transitions, auto-approval thresholds, reject → rematch, expiry → rematch).
+2. **Integration tests** (`backend/test/integration/`) — supertest against the real Express app (`src/app.js`, split out from `src/index.js` so tests don't bind a port or start the background poller): registration/login, org-join-by-company-name, cross-org isolation (one carrier can't see/delete another's availability), the pending-org match-request block, settings, admin authorization.
+3. **One end-to-end test** (`backend/test/e2e/fullFlow.test.js`) — the complete brief §8.3 flow: signup → admin approval → carrier posts availability → match requested → dual approval → booking → shipment complete → both sides rate each other → reputation summaries reflect it.
 
-GitHub Actions workflow (`.github/workflows/ci.yml`), triggered on every push/PR:
-1. `npm run lint` in `frontend/`
-2. `node --check` across `backend/src/**/*.js` (fast syntax gate before the slower suite runs)
-3. Backend unit + integration tests against a Postgres service container (GitHub Actions provides this natively)
-4. The E2E test
+Every test file runs against an isolated `freightcopilot_test` database (`backend/test/testDb.js` drops, recreates, and migrates it fresh before each file) — never the shared dev/demo data. `npm test` in `backend/` runs the full suite; **44/44 passing** as of this writing.
 
-This needs GitHub push access to actually run — see §7, being fixed now. None of this test suite exists yet; it's scoped as an implementation task alongside the org-model migration in §2, not yet written.
+GitHub Actions (`.github/workflows/ci.yml`), triggered on every push/PR:
+1. Backend: syntax gate (`node --check`) → full test suite against a real Postgres service container
+2. Frontend: lint → production build
+
+The org migration (§2) shipped in the previous session via careful manual grep + regression testing, which caught a stale `carriers.company_name` reference in the matching query and a stale `req.user.sub` in the ratings-submission route. This suite now covers exactly those same code paths (cross-org isolation, matching eligibility, ratings) automatically — that class of bug would be caught by CI going forward rather than depending on manual review catching it again.
 
 ## 7. Deployment topology
 
