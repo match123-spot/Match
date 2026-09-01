@@ -68,6 +68,12 @@ export default function DashboardPage() {
               >
                 Auto-approval
               </a>
+              <a
+                href="/dashboard/map"
+                className="inline-block rounded-md border border-gray-300 px-4 py-2 text-sm font-medium"
+              >
+                Live map
+              </a>
             </div>
           </>
         ) : (
@@ -91,6 +97,12 @@ export default function DashboardPage() {
                 className="inline-block rounded-md border border-gray-300 px-4 py-2 text-sm font-medium"
               >
                 Auto-approval
+              </a>
+              <a
+                href="/dashboard/map"
+                className="inline-block rounded-md border border-gray-300 px-4 py-2 text-sm font-medium"
+              >
+                Live map
               </a>
             </div>
           </>

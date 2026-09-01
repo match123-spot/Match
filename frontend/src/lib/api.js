@@ -88,3 +88,11 @@ export function setShipperAutoApprove(token, autoApproveMaxCost) {
 export function setCarrierAutoApprove(token, autoApproveMinIncome) {
   return apiFetch('/settings/carrier', { method: 'PATCH', body: { autoApproveMinIncome }, token });
 }
+
+export function getAvailableCarriers(token) {
+  return apiFetch('/map/carriers', { token });
+}
+
+export function getAvailableShipments(token) {
+  return apiFetch('/map/shipments', { token });
+}

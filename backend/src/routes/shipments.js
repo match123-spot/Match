@@ -2,6 +2,8 @@ const express = require('express');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { generateMockShipments } = require('../services/otmMockService');
+const { recommendPrice } = require('../services/claudeService');
+const { lookupCoords, haversineKm } = require('../services/geo');
 
 const router = express.Router();
 
@@ -19,13 +21,36 @@ router.post('/mock-pull', async (req, res) => {
   const count = Math.min(Number(req.body?.count) || 3, 10);
   const mocks = generateMockShipments(count);
 
+  // Ask Claude to recommend a rate for each shipment, grounded by the formula
+  // estimate as an anchor; fall back to the formula estimate if Claude fails.
+  const priced = await Promise.all(
+    mocks.map(async (m) => {
+      const a = lookupCoords(m.originRegion);
+      const b = lookupCoords(m.destinationRegion);
+      const distanceKm = a && b ? haversineKm(a, b) : 500;
+      const ai = await recommendPrice({
+        originRegion: m.originRegion,
+        destinationRegion: m.destinationRegion,
+        weightKg: m.weightKg,
+        truckType: m.truckType,
+        distanceKm,
+        marketEstimate: m.quotedRate,
+      });
+      return {
+        ...m,
+        quotedRate: ai?.rate ?? m.quotedRate,
+        rateReasoning: ai?.reasoning ?? null,
+      };
+    })
+  );
+
   const inserted = [];
-  for (const m of mocks) {
+  for (const m of priced) {
     const result = await pool.query(
       `INSERT INTO shipments
          (shipper_id, otm_shipment_ref, origin_region, destination_region, weight_kg, truck_type_required,
-          pickup_window_start, pickup_window_end, quoted_rate)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+          pickup_window_start, pickup_window_end, quoted_rate, rate_reasoning)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
       [
         shipperId,
         m.otmRef,
@@ -36,6 +61,7 @@ router.post('/mock-pull', async (req, res) => {
         m.pickupStart,
         m.pickupEnd,
         m.quotedRate,
+        m.rateReasoning,
       ]
     );
     inserted.push(result.rows[0]);

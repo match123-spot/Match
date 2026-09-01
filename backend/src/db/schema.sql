@@ -91,7 +91,8 @@ CREATE TABLE shipments (
   truck_type_required   TEXT NOT NULL,
   pickup_window_start   TIMESTAMPTZ NOT NULL,
   pickup_window_end     TIMESTAMPTZ NOT NULL,
-  quoted_rate           NUMERIC(10,2), -- mocked freight rate (AUD), drives auto-approval thresholds
+  quoted_rate           NUMERIC(10,2), -- AI-recommended freight rate (AUD), drives auto-approval thresholds
+  rate_reasoning        TEXT, -- Claude's rationale for the recommended rate
   status                TEXT NOT NULL DEFAULT 'pending'
                           CHECK (status IN ('pending', 'matching', 'awaiting_approval', 'booked', 'cancelled', 'completed')),
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),

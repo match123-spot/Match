@@ -19,6 +19,7 @@ app.use('/shipments', require('./routes/shipments'));
 app.use('/matches', require('./routes/matches'));
 app.use('/ratings', require('./routes/ratings'));
 app.use('/settings', require('./routes/settings'));
+app.use('/map', require('./routes/map'));
 
 const PORT = process.env.PORT || 4000;
 

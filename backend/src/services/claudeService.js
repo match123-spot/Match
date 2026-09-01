@@ -31,4 +31,52 @@ Scores (0-100 each): overall ${scores.total}, distance fit ${scores.distance}, t
   }
 }
 
-module.exports = { explainMatch };
+async function recommendPrice({ originRegion, destinationRegion, weightKg, truckType, distanceKm, marketEstimate }) {
+  try {
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 300,
+      tools: [
+        {
+          name: 'recommend_price',
+          description: 'Recommend an AUD freight rate for this shipment.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              rate: { type: 'number', description: 'Recommended total linehaul rate in AUD' },
+              reasoning: { type: 'string', description: 'One or two plain-language sentences explaining the rate' },
+            },
+            required: ['rate', 'reasoning'],
+          },
+        },
+      ],
+      tool_choice: { type: 'tool', name: 'recommend_price' },
+      messages: [
+        {
+          role: 'user',
+          content: `Recommend a fair AUD linehaul rate for this AU/NZ freight shipment.
+
+Origin: ${originRegion}
+Destination: ${destinationRegion}
+Approximate distance: ${Math.round(distanceKm)}km
+Weight: ${weightKg}kg
+Truck type required: ${truckType} (refrigerated and B-double typically command a premium over rigid/semi)
+A simple distance+weight formula estimates: $${marketEstimate} AUD (anchor only, not authoritative)
+
+Consider distance, weight, and truck type premium against typical AU/NZ domestic linehaul market rates. Return a realistic rate — it can differ from the formula estimate if you have good reason, but stay in a plausible range for this lane.`,
+        },
+      ],
+    });
+    const toolUse = msg.content?.find((b) => b.type === 'tool_use');
+    if (!toolUse?.input?.rate) return null;
+    return {
+      rate: Math.round(toolUse.input.rate * 100) / 100,
+      reasoning: toolUse.input.reasoning ?? null,
+    };
+  } catch (err) {
+    console.error('Claude price recommendation failed:', err.message);
+    return null;
+  }
+}
+
+module.exports = { explainMatch, recommendPrice };
