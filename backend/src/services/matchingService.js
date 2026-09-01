@@ -1,29 +1,16 @@
 const { pool } = require('../config/db');
 const { lookupCoords, haversineKm } = require('./geo');
-
-// Hard geographic eligibility cutoff: a truck this far from the shipment
-// origin is not a candidate at all, regardless of how well it scores on
-// everything else — a carrier in Auckland cannot pick up a load out of
-// Wellington. Within this radius, distance is still 30% of the weighted
-// score, favouring the closest truck.
-const MAX_PICKUP_DISTANCE_KM = 150;
-
-// Body-type "size class" — used to detect when a load could move on a
-// smaller (cheaper) truck than the shipper originally specified, or would
-// need a bigger one. Refrigerated is a separate axis (temperature control,
-// not size) so it's excluded from this ranking and never substituted.
-const TRUCK_CLASS_RANK = { rigid: 1, semi: 2, 'B-double': 3 };
-
-// Rough relative linehaul rate multiplier by truck class, used only to
-// estimate the savings/premium of a right-sized substitution — not a real
-// rate lookup, just a heuristic anchor consistent with the premiums Claude's
-// pricing prompt already reasons about.
-const TRUCK_RATE_MULTIPLIER = { rigid: 1.0, semi: 1.12, 'B-double': 1.28, refrigerated: 1.2 };
-
-// Typical AU/NZ pallet capacity by truck type — a load can be pallet-bound
-// before it's weight-bound (e.g. light but bulky freight), so utilization
-// checks both and takes whichever constraint is tighter.
-const PALLET_CAPACITY = { rigid: 12, semi: 24, 'B-double': 34, refrigerated: 20 };
+const {
+  SCORE_WEIGHTS,
+  MAX_PICKUP_DISTANCE_KM,
+  UTILIZATION_FULL_RATIO,
+  RELIABILITY_NEUTRAL_SCORE,
+  TRUCK_CLASS_RANK,
+  TRUCK_RATE_MULTIPLIER,
+  PALLET_CAPACITY,
+  DEFAULT_PALLET_CAPACITY,
+  DEFAULT_CANDIDATE_LIMIT,
+} = require('../config/matching.config');
 
 function round2(n) {
   return Math.round(n * 100) / 100;
@@ -54,8 +41,8 @@ function scoreTiming(shipment, availability) {
 }
 
 function scoreUtilization(ratio) {
-  // Rewards near-full trucks; 85%+ capacity utilization scores 100.
-  return round2(Math.min(100, (ratio / 0.85) * 100));
+  // Rewards near-full trucks; UTILIZATION_FULL_RATIO+ capacity scores 100.
+  return round2(Math.min(100, (ratio / UTILIZATION_FULL_RATIO) * 100));
 }
 
 // A load can be bound by weight or by pallet slots, whichever is tighter —
@@ -64,7 +51,7 @@ function scoreUtilization(ratio) {
 function utilizationRatio(shipment, availabilityRow) {
   const weightRatio = shipment.weight_kg / availabilityRow.truck_capacity_kg;
   if (shipment.pallet_count == null) return weightRatio;
-  const palletCapacity = PALLET_CAPACITY[availabilityRow.truck_type] ?? 24;
+  const palletCapacity = PALLET_CAPACITY[availabilityRow.truck_type] ?? DEFAULT_PALLET_CAPACITY;
   const palletRatio = shipment.pallet_count / palletCapacity;
   return Math.max(weightRatio, palletRatio);
 }
@@ -76,7 +63,7 @@ async function getReliabilityStats(carrierId) {
   );
   const count = Number(rows[0]?.count ?? 0);
   if (count === 0) {
-    return { score: 70, avgRating: null, ratingCount: 0 }; // neutral default until the carrier has ratings
+    return { score: RELIABILITY_NEUTRAL_SCORE, avgRating: null, ratingCount: 0 }; // neutral until the carrier has ratings
   }
   const avgRating = round2(Number(rows[0].avg_rating));
   return { score: round2((avgRating / 5) * 100), avgRating, ratingCount: count };
@@ -95,7 +82,7 @@ async function getReliabilityStats(carrierId) {
  * right-sized truck over an under-filled bigger one, and the result is
  * flagged as a `truckType.match: 'downsize'` recommendation.
  */
-async function rankCandidates(shipment, limit = 5) {
+async function rankCandidates(shipment, limit = DEFAULT_CANDIDATE_LIMIT) {
   const requiresRefrigerated = shipment.truck_type_required === 'refrigerated';
   const truckTypeClause = requiresRefrigerated ? `ca.truck_type = 'refrigerated'` : `ca.truck_type != 'refrigerated'`;
   const { rows } = await pool.query(
@@ -130,7 +117,11 @@ async function rankCandidates(shipment, limit = 5) {
     const acceptanceRate = round2(Number(row.historical_acceptance_rate));
 
     const total = round2(
-      distance * 0.3 + timing * 0.25 + utilization * 0.15 + reliability * 0.2 + acceptanceRate * 0.1
+      distance * SCORE_WEIGHTS.distance +
+        timing * SCORE_WEIGHTS.timing +
+        utilization * SCORE_WEIGHTS.utilization +
+        reliability * SCORE_WEIGHTS.reliability +
+        acceptanceRate * SCORE_WEIGHTS.acceptanceRate
     );
 
     const offeredRank = TRUCK_CLASS_RANK[row.truck_type] ?? null;

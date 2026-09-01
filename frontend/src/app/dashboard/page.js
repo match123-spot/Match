@@ -2,20 +2,23 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getMe, getMyRatingSummary } from '@/lib/api';
+import { getMe, getMyRatingSummary, getMatchingConfig } from '@/lib/api';
 
-const MAX_PICKUP_DISTANCE_KM = 150;
-
-const SCORE_WEIGHTS = [
+// Labels/detail copy are presentation-only; the actual weight numbers and
+// distance cutoff come from the backend's /config endpoint (single source
+// of truth — see backend/src/config/matching.config.js) so this can't drift
+// out of sync with the real scoring logic.
+const SCORE_WEIGHT_COPY = [
   {
+    key: 'distance',
     label: 'Distance fit',
-    weight: 30,
-    detail: `How close the carrier truck is to the shipment origin — trucks beyond ${MAX_PICKUP_DISTANCE_KM}km are excluded entirely, not just down-ranked`,
+    detail: (maxKm) =>
+      `How close the carrier truck is to the shipment origin — trucks beyond ${maxKm}km are excluded entirely, not just down-ranked`,
   },
-  { label: 'Timing overlap', weight: 25, detail: "How well the truck's available window covers the pickup window" },
-  { label: 'Truck utilization', weight: 15, detail: "How full the truck runs — near-capacity loads score highest" },
-  { label: 'Reliability', weight: 20, detail: "The carrier's average star rating from past shipments" },
-  { label: 'Acceptance rate', weight: 10, detail: "The carrier's historical rate of accepting offered matches" },
+  { key: 'timing', label: 'Timing overlap', detail: () => "How well the truck's available window covers the pickup window" },
+  { key: 'utilization', label: 'Truck utilization', detail: () => 'How full the truck runs — near-capacity loads score highest' },
+  { key: 'reliability', label: 'Reliability', detail: () => "The carrier's average star rating from past shipments" },
+  { key: 'acceptanceRate', label: 'Acceptance rate', detail: () => "The carrier's historical rate of accepting offered matches" },
 ];
 
 function StarSummary({ summary }) {
@@ -48,7 +51,10 @@ function StarSummary({ summary }) {
   );
 }
 
-function MatchingExplainer({ role }) {
+function MatchingExplainer({ role, config }) {
+  if (!config) return null;
+  const { maxPickupDistanceKm, approvalWindowMinutes, scoreWeights } = config;
+
   return (
     <div className="mt-8 rounded-lg border border-gray-200 p-6">
       <h2 className="font-medium">How AI matching works</h2>
@@ -59,12 +65,12 @@ function MatchingExplainer({ role }) {
       </p>
 
       <div className="mt-4 flex flex-col gap-2">
-        {SCORE_WEIGHTS.map((s) => (
-          <div key={s.label} className="flex items-center gap-3 text-sm">
-            <span className="w-14 shrink-0 text-right font-semibold">{s.weight}%</span>
+        {SCORE_WEIGHT_COPY.map((s) => (
+          <div key={s.key} className="flex items-center gap-3 text-sm">
+            <span className="w-14 shrink-0 text-right font-semibold">{scoreWeights[s.key]}%</span>
             <div>
               <span className="font-medium">{s.label}</span>
-              <span className="text-gray-500"> — {s.detail}</span>
+              <span className="text-gray-500"> — {s.detail(maxPickupDistanceKm)}</span>
             </div>
           </div>
         ))}
@@ -73,7 +79,7 @@ function MatchingExplainer({ role }) {
       <p className="mt-4 text-sm text-gray-500">
         Geography is a hard cutoff before any weighting happens — a truck in Auckland is never considered for a
         pickup out of Wellington, no matter how well it scores elsewhere. Only trucks within{' '}
-        {MAX_PICKUP_DISTANCE_KM}km of the shipment origin are eligible at all.
+        {maxPickupDistanceKm}km of the shipment origin are eligible at all.
       </p>
 
       <p className="mt-3 text-sm text-gray-500">
@@ -96,8 +102,8 @@ function MatchingExplainer({ role }) {
 
       <p className="mt-3 text-sm text-gray-500">
         Once a match is offered,{' '}
-        {role === 'carrier' ? 'you and the shipper' : 'you and the carrier'} both have 20 minutes to approve. If
-        either side rejects or the window lapses, the system automatically tries the next-best candidate — no
+        {role === 'carrier' ? 'you and the shipper' : 'you and the carrier'} both have {approvalWindowMinutes} minutes
+        to approve. If either side rejects or the window lapses, the system automatically tries the next-best candidate — no
         manual re-matching needed. You can also set an auto-approval threshold (in{' '}
         <a href="/dashboard/settings" className="underline">
           Auto-approval
@@ -112,6 +118,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [ratingSummary, setRatingSummary] = useState(null);
+  const [matchingConfig, setMatchingConfig] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -120,6 +127,9 @@ export default function DashboardPage() {
       router.push('/login');
       return;
     }
+    getMatchingConfig()
+      .then(setMatchingConfig)
+      .catch(() => {}); // presentation-only — a failed fetch just hides the explainer section
     getMe(token)
       .then((data) => {
         setUser(data.user);
@@ -256,7 +266,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <MatchingExplainer role={user.role} />
+      <MatchingExplainer role={user.role} config={matchingConfig} />
       </>
       )}
     </main>

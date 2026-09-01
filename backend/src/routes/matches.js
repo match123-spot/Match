@@ -9,6 +9,7 @@ const {
   rejectMatch,
   getMatchForUser,
 } = require('../services/matchWorkflowService');
+const { CANDIDATE_POOL_SIZE } = require('../config/matching.config');
 
 const router = express.Router();
 
@@ -28,7 +29,7 @@ router.get('/live-candidates/:shipmentId', requireAuth, requireRole('shipper'), 
   const shipment = await getOwnedShipment(req.params.shipmentId, req.user.orgId);
   if (!shipment) return res.status(404).json({ error: 'Shipment not found' });
 
-  const candidates = await rankCandidates(shipment, 10);
+  const candidates = await rankCandidates(shipment, CANDIDATE_POOL_SIZE);
   res.json({ candidates });
 });
 

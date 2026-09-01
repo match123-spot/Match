@@ -65,24 +65,15 @@ Needs, once org-scoping lands:
 - A minimal admin view (even a plain table with an approve button is enough for MVP — no need for a polished admin dashboard yet).
 - Matching queries (`rankCandidates` in `matchingService.js`) gain a `AND c.org_status = 'approved'` condition once carriers join `organizations`.
 
-## 5. Config strategy — killing the hardcoded constants
+## 5. Config strategy — killing the hardcoded constants — done
 
-**Decision: versioned config file**, not env vars, not DB-admin-editable (yet — revisit once you're actively tuning weights against real match outcomes, at which point promoting specific values to DB-backed settings is a small follow-up, not a rewrite).
+**Versioned config file**, not env vars, not DB-admin-editable (yet — revisit once you're actively tuning weights against real match outcomes, at which point promoting specific values to DB-backed settings is a small follow-up, not a rewrite).
 
-Currently hardcoded across the codebase:
+Everything that used to be a magic number now lives in `backend/src/config/matching.config.js`: `SCORE_WEIGHTS`, `MAX_PICKUP_DISTANCE_KM`, `UTILIZATION_FULL_RATIO`, `RELIABILITY_NEUTRAL_SCORE`, `TRUCK_CLASS_RANK`, `TRUCK_RATE_MULTIPLIER`, `PALLET_CAPACITY`, `APPROVAL_WINDOW_MS`, `DEFAULT_CANDIDATE_LIMIT`/`CANDIDATE_POOL_SIZE`, and `REGION_COORDS`/`REGION_COUNTRY` (moved out of `geo.js`, which is now purely geometry functions). `matchingService.js`, `matchWorkflowService.js`, `geo.js`, and `routes/matches.js` all import from this one file — no behavior change, verified by the full test suite passing unchanged before and after.
 
-| Constant | File | Value |
-|---|---|---|
-| Scoring weights (distance/timing/utilization/reliability/acceptance) | `matchingService.js` | 30/25/15/20/10 |
-| `MAX_PICKUP_DISTANCE_KM` | `matchingService.js` | 150 |
-| `TRUCK_CLASS_RANK`, `TRUCK_RATE_MULTIPLIER`, `PALLET_CAPACITY` | `matchingService.js` | inline objects |
-| `REGION_COORDS` (AU/NZ hub lat/lng) | `geo.js` | inline lookup table |
-| Approval window (20 min) | `matchWorkflowService.js` | inline |
-| Auto-rematch candidate limit | `matchingService.js` | inline `limit = 5` |
+**Went one step further than "one file in the backend":** the frontend had silently duplicated two of these values as separate hardcoded literals (`MAX_PICKUP_DISTANCE_KM = 150` in two different page files, and the 30/25/15/20/10 score weights in the dashboard explainer) — real drift risk, since nothing would have caught them going out of sync with the backend if the backend values ever changed. Added a public `GET /config` endpoint exposing the display-safe subset (`maxPickupDistanceKm`, `approvalWindowMinutes`, `scoreWeights`), and the frontend now fetches it instead of hardcoding — genuinely one source of truth end-to-end, not just within the backend.
 
-**Target shape:** one `backend/src/config/matching.config.js`, exporting all of the above as named constants, imported everywhere they're currently inlined. No behavior change — purely extracting magic numbers into one reviewable, versioned place. `REGION_COORDS` stays here too until real geocoding replaces it (a separate, larger decision — see §8).
-
-This is mechanical and low-risk; I can do this refactor as soon as you want, independent of the org migration.
+`REGION_COORDS` stays here too until real geocoding replaces it (a separate, larger decision — see §9).
 
 ## 6. Testing & CI — done
 

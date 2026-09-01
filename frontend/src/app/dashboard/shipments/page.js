@@ -2,10 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { listShipments, pullMockShipments, getMatchCandidates, getLiveCandidates, requestMatch } from '@/lib/api';
+import {
+  listShipments,
+  pullMockShipments,
+  getMatchCandidates,
+  getLiveCandidates,
+  requestMatch,
+  getMatchingConfig,
+} from '@/lib/api';
 
 const LIVE_POLL_MS = 15000;
-const MAX_PICKUP_DISTANCE_KM = 150;
 
 const SCORE_LABELS = {
   distance: 'Distance fit',
@@ -66,7 +72,7 @@ function proximityColor(km) {
   return 'bg-red-500';
 }
 
-function LiveMatchesPanel({ candidates, checkedAt }) {
+function LiveMatchesPanel({ candidates, checkedAt, maxPickupDistanceKm }) {
   if (candidates == null) {
     return <p className="mt-3 text-xs text-gray-400">Scanning live carrier availability…</p>;
   }
@@ -81,7 +87,7 @@ function LiveMatchesPanel({ candidates, checkedAt }) {
         {checkedAt && <p className="text-[11px] text-gray-400">Checked {checkedAt.toLocaleTimeString()}</p>}
       </div>
       <p className="mt-0.5 text-[11px] text-gray-400">
-        Only trucks within {MAX_PICKUP_DISTANCE_KM}km of pickup are eligible — a truck in Auckland can&rsquo;t take a
+        Only trucks within {maxPickupDistanceKm}km of pickup are eligible — a truck in Auckland can&rsquo;t take a
         load out of Wellington.
       </p>
 
@@ -145,7 +151,14 @@ export default function ShipmentsPage() {
   const [requested, setRequested] = useState({});
   const [liveCandidates, setLiveCandidates] = useState({});
   const [liveCheckedAt, setLiveCheckedAt] = useState(null);
+  const [matchingConfig, setMatchingConfig] = useState(null);
   const shipmentsRef = useRef([]);
+
+  useEffect(() => {
+    getMatchingConfig()
+      .then(setMatchingConfig)
+      .catch(() => {}); // presentation-only — falls back to omitting the km figure if unavailable
+  }, []);
 
   useEffect(() => {
     shipmentsRef.current = shipments;
@@ -316,7 +329,11 @@ export default function ShipmentsPage() {
             <RateComparison shipment={s} />
 
             {s.status === 'pending' && (
-              <LiveMatchesPanel candidates={liveCandidates[s.id]} checkedAt={liveCheckedAt} />
+              <LiveMatchesPanel
+                candidates={liveCandidates[s.id]}
+                checkedAt={liveCheckedAt}
+                maxPickupDistanceKm={matchingConfig?.maxPickupDistanceKm ?? 150}
+              />
             )}
 
             {matchesByShipment[s.id] && (

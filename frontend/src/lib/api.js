@@ -17,6 +17,10 @@ async function apiFetch(path, { method = 'GET', body, token } = {}) {
   return data;
 }
 
+export function getMatchingConfig() {
+  return apiFetch('/config');
+}
+
 export function register(payload) {
   return apiFetch('/auth/register', { method: 'POST', body: payload });
 }

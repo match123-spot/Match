@@ -1,8 +1,8 @@
 const { pool } = require('../config/db');
 const { rankCandidates } = require('./matchingService');
 const { sendMatchRequestEmail, sendBookingConfirmationEmail } = require('./emailService');
+const { APPROVAL_WINDOW_MS, CANDIDATE_POOL_SIZE } = require('../config/matching.config');
 
-const APPROVAL_WINDOW_MS = 20 * 60 * 1000;
 const OPEN_STATUSES = ['pending', 'shipper_approved', 'carrier_approved'];
 
 async function getExcludedAvailabilityIds(shipmentId) {
@@ -46,7 +46,7 @@ async function maybeAutoApprove(match, shipment, carrierInfo) {
  */
 async function createMatchForShipment(shipment, { rematchOf = null } = {}) {
   const excluded = await getExcludedAvailabilityIds(shipment.id);
-  const candidates = await rankCandidates(shipment, 10);
+  const candidates = await rankCandidates(shipment, CANDIDATE_POOL_SIZE);
   const pick = candidates.find((c) => !excluded.includes(c.availabilityId));
 
   if (!pick) {

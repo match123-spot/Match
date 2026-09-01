@@ -48,6 +48,17 @@ async function registerCarrier(email, overrides = {}) {
   return res;
 }
 
+describe('GET /config', () => {
+  test('exposes matching-engine constants publicly, no auth required', async () => {
+    const res = await request.get('/config');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.maxPickupDistanceKm, 150);
+    assert.equal(res.body.approvalWindowMinutes, 20);
+    const sum = Object.values(res.body.scoreWeights).reduce((a, b) => a + b, 0);
+    assert.equal(sum, 100, 'score weights should sum to 100%');
+  });
+});
+
 describe('POST /auth/register', () => {
   test('creates a user and a pending org, returns a usable token', async () => {
     const res = await registerShipper('shipper1@test.local');
