@@ -51,6 +51,24 @@ const APPROVAL_WINDOW_MS = 20 * 60 * 1000;
 // rematch/live-candidates paths scan a deeper pool so there's somewhere to
 // go when the top pick has already been offered and rejected.
 const DEFAULT_CANDIDATE_LIMIT = 5;
+
+// "Day ahead" predictive insights (morning briefing on both dashboards) —
+// see insightsService.js. Rolling window, not a calendar day, so it's
+// useful whenever someone logs in, not just right at midnight.
+const INSIGHT_WINDOW_HOURS = 24;
+
+// A shipper opportunity is "attractive" when the AI marketplace rate beats
+// the shipper's existing contracted rate by at least this much.
+const INSIGHT_SHIPPER_SAVINGS_THRESHOLD_PCT = 8;
+
+// A carrier opportunity is "attractive" when a shipment scores at least
+// this well against one of the carrier's own trucks (same 0-100 scale as
+// the main matching engine).
+const INSIGHT_CARRIER_SCORE_THRESHOLD = 70;
+
+// How many opportunities to surface per dashboard load — a briefing, not an
+// exhaustive report.
+const INSIGHT_MAX_RESULTS = 8;
 const CANDIDATE_POOL_SIZE = 10;
 
 // AU/NZ freight-hub coordinate lookup — stands in for real geocoding until
@@ -104,4 +122,8 @@ module.exports = {
   CANDIDATE_POOL_SIZE,
   REGION_COORDS,
   REGION_COUNTRY,
+  INSIGHT_WINDOW_HOURS,
+  INSIGHT_SHIPPER_SAVINGS_THRESHOLD_PCT,
+  INSIGHT_CARRIER_SCORE_THRESHOLD,
+  INSIGHT_MAX_RESULTS,
 };

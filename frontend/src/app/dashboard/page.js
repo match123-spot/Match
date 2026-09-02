@@ -2,7 +2,93 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getMe, getMyRatingSummary, getMatchingConfig } from '@/lib/api';
+import { getMe, getMyRatingSummary, getMatchingConfig, getMyInsights } from '@/lib/api';
+
+function fmtMoney(n) {
+  return `$${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+// "Log in in the morning and see what's worth chasing today" — a predictive
+// summary, not a raw data dump. Built on the same weighted scoring engine
+// and AI-recommended pricing used everywhere else (see
+// backend/src/services/insightsService.js), so "attractive" here means
+// exactly what it means when a real match is scored — no separate,
+// drifting definition of what counts as a good opportunity.
+function MorningBriefing({ role, insights }) {
+  if (!insights) return null;
+
+  const emptyCopy =
+    role === 'shipper'
+      ? `Nothing predicted to be worth chasing on the spot market in the next ${insights.windowHours}h — check back once you've pulled today's shipments.`
+      : `No shipments predicted to be attractive for your fleet in the next ${insights.windowHours}h — post more truck availability to widen your reach.`;
+
+  if (insights.count === 0) {
+    return (
+      <div className="mt-8 rounded-lg border border-gray-200 bg-gray-50 p-6">
+        <h2 className="font-medium">Morning briefing</h2>
+        <p className="mt-1 text-sm text-gray-500">{emptyCopy}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-8 rounded-lg border border-blue-200 bg-blue-50 p-6">
+      <h2 className="font-medium">☀️ Morning briefing</h2>
+      {role === 'shipper' ? (
+        <p className="mt-1 text-sm text-gray-700">
+          You have <span className="font-semibold">{insights.count}</span> shipment{insights.count === 1 ? '' : 's'} in
+          the next {insights.windowHours}h predicted to be attractive for savings through the spot market
+          {insights.totalPotentialSavings > 0 && (
+            <>
+              {' '}
+              — up to <span className="font-semibold">{fmtMoney(insights.totalPotentialSavings)}</span> total.
+            </>
+          )}
+        </p>
+      ) : (
+        <p className="mt-1 text-sm text-gray-700">
+          There {insights.count === 1 ? 'is' : 'are'} <span className="font-semibold">{insights.count}</span> shipment
+          {insights.count === 1 ? '' : 's'} in the next {insights.windowHours}h in{' '}
+          <span className="font-semibold">{insights.areas.join(', ')}</span> where you have trucks, predicted to be
+          attractive for your fleet.
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-col gap-2">
+        {insights.opportunities.map((o) =>
+          role === 'shipper' ? (
+            <a
+              key={o.shipmentId}
+              href="/dashboard/shipments"
+              className="flex items-center justify-between rounded-md bg-white px-3 py-2 text-sm hover:bg-gray-50"
+            >
+              <span>
+                {o.originRegion} → {o.destinationRegion}
+              </span>
+              <span className="font-medium text-green-700">
+                -{o.savingsPct}% ({fmtMoney(o.savingsAmount)})
+              </span>
+            </a>
+          ) : (
+            <a
+              key={o.shipmentId}
+              href="/dashboard/map"
+              className="flex items-center justify-between rounded-md bg-white px-3 py-2 text-sm hover:bg-gray-50"
+            >
+              <span>
+                {o.originRegion} → {o.destinationRegion}{' '}
+                {o.distanceKm != null && <span className="text-gray-400">({o.distanceKm}km)</span>}
+              </span>
+              <span className="font-medium">
+                {o.score}/100{o.estimatedRate != null ? ` · ${fmtMoney(o.estimatedRate)}` : ''}
+              </span>
+            </a>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
 
 // Labels/detail copy are presentation-only; the actual weight numbers and
 // distance cutoff come from the backend's /config endpoint (single source
@@ -119,6 +205,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState(null);
   const [ratingSummary, setRatingSummary] = useState(null);
   const [matchingConfig, setMatchingConfig] = useState(null);
+  const [insights, setInsights] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -134,6 +221,9 @@ export default function DashboardPage() {
       .then((data) => {
         setUser(data.user);
         if (data.user.role === 'admin') return null;
+        getMyInsights(token)
+          .then(setInsights)
+          .catch(() => {}); // briefing is a bonus widget — a failed fetch just hides it
         return getMyRatingSummary(token);
       })
       .then((data) => data && setRatingSummary(data))
@@ -179,6 +269,10 @@ export default function DashboardPage() {
             </>
           )}
         </div>
+      )}
+
+      {user.role !== 'admin' && user.org_status === 'approved' && (
+        <MorningBriefing role={user.role} insights={insights} />
       )}
 
       {user.role === 'admin' && (

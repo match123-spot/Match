@@ -78,6 +78,8 @@ on every push/PR, plus a frontend lint + build check.
 7. Email notifications (SendGrid) ✅
 8. Multi-tenant organizations + admin approval gate ✅
 9. Test suite + CI ✅
+10. AI-recommended pricing, live capacity/demand map, configurable auto-approval, truck right-sizing ✅
+11. Predictive "day ahead" insights on both dashboards ✅
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technical architecture and open follow-ups.
 

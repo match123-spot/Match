@@ -206,6 +206,31 @@ describe('settings (auto-approval thresholds)', () => {
   });
 });
 
+describe('GET /insights/me', () => {
+  test('a shipper with no shipments gets an empty briefing, not an error', async () => {
+    const shipper = await registerShipper('shipper1@test.local');
+    const res = await request.get('/insights/me').set('Authorization', `Bearer ${shipper.body.token}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.role, 'shipper');
+    assert.equal(res.body.count, 0);
+    assert.deepEqual(res.body.opportunities, []);
+  });
+
+  test('a carrier with no trucks gets an empty briefing, not an error', async () => {
+    const carrier = await registerCarrier('carrier1@test.local');
+    const res = await request.get('/insights/me').set('Authorization', `Bearer ${carrier.body.token}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.role, 'carrier');
+    assert.equal(res.body.count, 0);
+    assert.deepEqual(res.body.areas, []);
+  });
+
+  test('requires auth', async () => {
+    const res = await request.get('/insights/me');
+    assert.equal(res.status, 401);
+  });
+});
+
 describe('admin authorization', () => {
   test('a non-admin cannot access /admin/organizations', async () => {
     const shipper = await registerShipper('shipper1@test.local');

@@ -37,5 +37,6 @@ app.use('/ratings', require('./routes/ratings'));
 app.use('/settings', require('./routes/settings'));
 app.use('/map', require('./routes/map'));
 app.use('/admin', require('./routes/admin'));
+app.use('/insights', require('./routes/insights'));
 
 module.exports = app;

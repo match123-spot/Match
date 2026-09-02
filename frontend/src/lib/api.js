@@ -109,6 +109,10 @@ export function getMyRatingSummary(token) {
   return apiFetch('/ratings/me/summary', { token });
 }
 
+export function getMyInsights(token) {
+  return apiFetch('/insights/me', { token });
+}
+
 export function listOrganizations(token, status) {
   return apiFetch(`/admin/organizations${status ? `?status=${status}` : ''}`, { token });
 }
