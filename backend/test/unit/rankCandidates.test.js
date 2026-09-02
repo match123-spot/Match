@@ -5,6 +5,17 @@ const { setupTestDatabase } = require('../testDb');
 let pool;
 let rankCandidates;
 
+// Fixed reference point, relative to "now" so these tests don't rot as real
+// wall-clock time passes (carrier_availability.available_date is filtered
+// against CURRENT_DATE in the actual query).
+const IN_2_HOURS = new Date(Date.now() + 2 * 60 * 60 * 1000);
+const IN_6_HOURS = new Date(Date.now() + 6 * 60 * 60 * 1000);
+const TODAY = new Date().toISOString().slice(0, 10);
+const START_OF_WINDOW = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1h ago, so "now" always falls inside
+const END_OF_WINDOW = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(); // 2 days out
+const FAR_FUTURE_START = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+const FAR_FUTURE_END = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString();
+
 before(async () => {
   pool = await setupTestDatabase();
   // Required after setupTestDatabase mutates DATABASE_URL, so config/db picks up the test DB.
@@ -29,12 +40,12 @@ async function makeApprovedOrgWithCarrier({ companyName, baseLocation }) {
 
 async function addAvailability(carrierId, overrides = {}) {
   const defaults = {
-    availableDate: '2026-09-01',
+    availableDate: TODAY,
     truckType: 'semi',
     truckCapacityKg: 25000,
     originRegion: 'Sydney, NSW',
-    windowStart: '2026-09-01T00:00:00Z',
-    windowEnd: '2026-09-03T00:00:00Z',
+    windowStart: START_OF_WINDOW,
+    windowEnd: END_OF_WINDOW,
   };
   const a = { ...defaults, ...overrides };
   await pool.query(
@@ -62,8 +73,8 @@ describe('rankCandidates', () => {
       origin_region: 'Sydney, NSW',
       truck_type_required: 'semi',
       weight_kg: 10000,
-      pickup_window_start: '2026-09-01T10:00:00Z',
-      pickup_window_end: '2026-09-01T14:00:00Z',
+      pickup_window_start: IN_2_HOURS.toISOString(),
+      pickup_window_end: IN_6_HOURS.toISOString(),
     };
     const candidates = await rankCandidates(shipment);
     assert.equal(candidates.length, 0, 'a pending org must never be matchable');
@@ -77,8 +88,8 @@ describe('rankCandidates', () => {
       origin_region: 'Sydney, NSW',
       truck_type_required: 'semi',
       weight_kg: 10000,
-      pickup_window_start: '2026-09-01T10:00:00Z',
-      pickup_window_end: '2026-09-01T14:00:00Z',
+      pickup_window_start: IN_2_HOURS.toISOString(),
+      pickup_window_end: IN_6_HOURS.toISOString(),
     };
     const candidates = await rankCandidates(shipment);
     assert.equal(candidates.length, 0, 'Perth is ~3300km from Sydney, well past the 150km cutoff');
@@ -97,8 +108,8 @@ describe('rankCandidates', () => {
       weight_kg: 15000,
       pallet_count: 15,
       ai_recommended_rate: 1800,
-      pickup_window_start: '2026-09-01T10:00:00Z',
-      pickup_window_end: '2026-09-01T14:00:00Z',
+      pickup_window_start: IN_2_HOURS.toISOString(),
+      pickup_window_end: IN_6_HOURS.toISOString(),
     };
     const candidates = await rankCandidates(shipment);
     assert.equal(candidates.length, 2);
@@ -118,8 +129,8 @@ describe('rankCandidates', () => {
       origin_region: 'Sydney, NSW',
       truck_type_required: 'refrigerated',
       weight_kg: 10000,
-      pickup_window_start: '2026-09-01T10:00:00Z',
-      pickup_window_end: '2026-09-01T14:00:00Z',
+      pickup_window_start: IN_2_HOURS.toISOString(),
+      pickup_window_end: IN_6_HOURS.toISOString(),
     };
     const candidates = await rankCandidates(shipment);
     assert.equal(candidates.length, 0, 'temperature control is not substitutable by raw capacity');
@@ -128,16 +139,16 @@ describe('rankCandidates', () => {
   test('excludes a truck whose availability window does not overlap the pickup window at all', async () => {
     const { carrierId } = await makeApprovedOrgWithCarrier({ companyName: 'Wrong Day Co', baseLocation: 'Sydney, NSW' });
     await addAvailability(carrierId, {
-      windowStart: '2026-09-05T00:00:00Z',
-      windowEnd: '2026-09-06T00:00:00Z',
+      windowStart: FAR_FUTURE_START,
+      windowEnd: FAR_FUTURE_END,
     });
 
     const shipment = {
       origin_region: 'Sydney, NSW',
       truck_type_required: 'semi',
       weight_kg: 10000,
-      pickup_window_start: '2026-09-01T10:00:00Z',
-      pickup_window_end: '2026-09-01T14:00:00Z',
+      pickup_window_start: IN_2_HOURS.toISOString(),
+      pickup_window_end: IN_6_HOURS.toISOString(),
     };
     const candidates = await rankCandidates(shipment);
     assert.equal(candidates.length, 0);
@@ -151,8 +162,8 @@ describe('rankCandidates', () => {
       origin_region: 'Sydney, NSW',
       truck_type_required: 'semi',
       weight_kg: 10000,
-      pickup_window_start: '2026-09-01T10:00:00Z',
-      pickup_window_end: '2026-09-01T14:00:00Z',
+      pickup_window_start: IN_2_HOURS.toISOString(),
+      pickup_window_end: IN_6_HOURS.toISOString(),
     };
     const candidates = await rankCandidates(shipment);
     assert.equal(candidates.length, 0);

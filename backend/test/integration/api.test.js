@@ -138,12 +138,12 @@ describe('carrier availability isolation between orgs', () => {
       .post('/availability')
       .set('Authorization', `Bearer ${carrierA.body.token}`)
       .send({
-        availableDate: '2026-09-01',
+        availableDate: new Date().toISOString().slice(0, 10),
         truckType: 'semi',
         truckCapacityKg: 25000,
         originRegion: 'Sydney, NSW',
-        windowStart: '2026-09-01T00:00:00Z',
-        windowEnd: '2026-09-03T00:00:00Z',
+        windowStart: new Date().toISOString(),
+        windowEnd: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
       });
     assert.equal(created.status, 201);
 

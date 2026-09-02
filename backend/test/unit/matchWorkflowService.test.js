@@ -49,7 +49,7 @@ async function makeCarrierWithAvailability({ autoApproveMinIncome = null, truckT
   );
   const availability = await pool.query(
     `INSERT INTO carrier_availability (carrier_id, available_date, truck_type, truck_capacity_kg, origin_region, window_start, window_end)
-     VALUES ($1, '2026-09-01', $2, 25000, 'Sydney, NSW', '2026-09-01T00:00:00Z', '2026-09-03T00:00:00Z') RETURNING id`,
+     VALUES ($1, CURRENT_DATE, $2, 25000, 'Sydney, NSW', now() - interval '1 hour', now() + interval '2 days') RETURNING id`,
     [carrier.rows[0].id, truckType]
   );
   return { orgId: org.rows[0].id, carrierId: carrier.rows[0].id, availabilityId: availability.rows[0].id };
@@ -67,7 +67,7 @@ async function makeShipment(shipperId, overrides = {}) {
   const result = await pool.query(
     `INSERT INTO shipments (shipper_id, origin_region, destination_region, weight_kg, truck_type_required,
        pickup_window_start, pickup_window_end, ai_recommended_rate, status)
-     VALUES ($1,$2,$3,$4,$5,'2026-09-01T10:00:00Z','2026-09-01T14:00:00Z',$6,'pending') RETURNING *`,
+     VALUES ($1,$2,$3,$4,$5, now() + interval '2 hours', now() + interval '6 hours', $6,'pending') RETURNING *`,
     [shipperId, s.originRegion, s.destinationRegion, s.weightKg, s.truckType, s.aiRecommendedRate]
   );
   return result.rows[0];

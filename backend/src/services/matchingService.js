@@ -70,9 +70,15 @@ async function getReliabilityStats(carrierId) {
 }
 
 /**
- * Ranks eligible carrier_availability entries against a shipment using the
- * weighted scoring model: distance 30%, timing 25%, utilization 15%,
- * reliability 20%, historical acceptance rate 10%.
+ * Scores one carrier_availability row (as returned by the SQL shape used
+ * below: id, carrier_id, company_name, base_location, historical_acceptance_rate,
+ * truck_type, truck_capacity_kg, origin_region, window_start, window_end)
+ * against a shipment. Returns null if ineligible, otherwise the same shape
+ * rankCandidates() has always returned. Pulled out on its own so both
+ * "rank every carrier against my shipment" (rankCandidates, shipper side)
+ * and "check my trucks against every open shipment" (insightsService,
+ * carrier side) share one scoring implementation instead of two drifting
+ * copies of the same rules.
  *
  * Truck type eligibility is capacity-based, not a rigid category match:
  * a refrigerated load requires a refrigerated truck (temperature control
@@ -81,6 +87,85 @@ async function getReliabilityStats(carrierId) {
  * originally specified. Utilization scoring then naturally favours a
  * right-sized truck over an under-filled bigger one, and the result is
  * flagged as a `truckType.match: 'downsize'` recommendation.
+ */
+async function scoreCandidateRow(shipment, row) {
+  const requiresRefrigerated = shipment.truck_type_required === 'refrigerated';
+  if (requiresRefrigerated && row.truck_type !== 'refrigerated') return null;
+  if (!requiresRefrigerated && row.truck_type === 'refrigerated') return null;
+
+  // Hard cutoff is weight only — that's the carrier's actual declared
+  // capacity. Pallet capacity is a rough per-category estimate (real trucks
+  // vary a lot by deck length), so it informs the utilization score but
+  // shouldn't alone disqualify a candidate that fits on weight.
+  const weightRatio = shipment.weight_kg / row.truck_capacity_kg;
+  if (weightRatio > 1) return null;
+
+  const timing = scoreTiming(shipment, row);
+  if (timing <= 0) return null;
+
+  const { km: distanceKm, score: distance } = distanceKmAndScore(shipment.origin_region, row.origin_region);
+  if (distanceKm != null && distanceKm > MAX_PICKUP_DISTANCE_KM) return null; // hard geographic cutoff
+
+  const utilization = scoreUtilization(utilizationRatio(shipment, row));
+  const reliabilityStats = await getReliabilityStats(row.carrier_id);
+  const reliability = reliabilityStats.score;
+  const acceptanceRate = round2(Number(row.historical_acceptance_rate));
+
+  const total = round2(
+    distance * SCORE_WEIGHTS.distance +
+      timing * SCORE_WEIGHTS.timing +
+      utilization * SCORE_WEIGHTS.utilization +
+      reliability * SCORE_WEIGHTS.reliability +
+      acceptanceRate * SCORE_WEIGHTS.acceptanceRate
+  );
+
+  const requiredRank = TRUCK_CLASS_RANK[shipment.truck_type_required] ?? null;
+  const offeredRank = TRUCK_CLASS_RANK[row.truck_type] ?? null;
+  let truckTypeMatch = 'exact';
+  if (requiredRank != null && offeredRank != null) {
+    if (offeredRank < requiredRank) truckTypeMatch = 'downsize';
+    else if (offeredRank > requiredRank) truckTypeMatch = 'upsize';
+  }
+
+  let estimatedRate = null;
+  if (truckTypeMatch !== 'exact' && shipment.ai_recommended_rate != null) {
+    const fromMultiplier = TRUCK_RATE_MULTIPLIER[shipment.truck_type_required] ?? 1;
+    const toMultiplier = TRUCK_RATE_MULTIPLIER[row.truck_type] ?? 1;
+    estimatedRate = round2((Number(shipment.ai_recommended_rate) / fromMultiplier) * toMultiplier);
+  }
+
+  return {
+    availabilityId: row.id,
+    carrier: {
+      id: row.carrier_id,
+      companyName: row.company_name,
+      baseLocation: row.base_location,
+      historicalAcceptanceRate: acceptanceRate,
+      avgRating: reliabilityStats.avgRating,
+      ratingCount: reliabilityStats.ratingCount,
+    },
+    availability: {
+      originRegion: row.origin_region,
+      truckType: row.truck_type,
+      truckCapacityKg: row.truck_capacity_kg,
+      windowStart: row.window_start,
+      windowEnd: row.window_end,
+      distanceKm,
+    },
+    truckType: {
+      required: shipment.truck_type_required,
+      offered: row.truck_type,
+      match: truckTypeMatch,
+      estimatedRate,
+    },
+    scores: { total, distance, timing, utilization, reliability, acceptanceRate },
+  };
+}
+
+/**
+ * Ranks eligible carrier_availability entries against a shipment using the
+ * weighted scoring model: distance 30%, timing 25%, utilization 15%,
+ * reliability 20%, historical acceptance rate 10%.
  */
 async function rankCandidates(shipment, limit = DEFAULT_CANDIDATE_LIMIT) {
   const requiresRefrigerated = shipment.truck_type_required === 'refrigerated';
@@ -94,76 +179,10 @@ async function rankCandidates(shipment, limit = DEFAULT_CANDIDATE_LIMIT) {
        AND o.status = 'approved'`
   );
 
-  const requiredRank = TRUCK_CLASS_RANK[shipment.truck_type_required] ?? null;
-
   const scored = [];
   for (const row of rows) {
-    // Hard cutoff is weight only — that's the carrier's actual declared
-    // capacity. Pallet capacity below is a rough per-category estimate (real
-    // trucks vary a lot by deck length), so it informs the utilization score
-    // but shouldn't alone disqualify a candidate that fits on weight.
-    const weightRatio = shipment.weight_kg / row.truck_capacity_kg;
-    if (weightRatio > 1) continue;
-
-    const timing = scoreTiming(shipment, row);
-    if (timing <= 0) continue;
-
-    const { km: distanceKm, score: distance } = distanceKmAndScore(shipment.origin_region, row.origin_region);
-    if (distanceKm != null && distanceKm > MAX_PICKUP_DISTANCE_KM) continue; // hard geographic cutoff
-
-    const utilization = scoreUtilization(utilizationRatio(shipment, row));
-    const reliabilityStats = await getReliabilityStats(row.carrier_id);
-    const reliability = reliabilityStats.score;
-    const acceptanceRate = round2(Number(row.historical_acceptance_rate));
-
-    const total = round2(
-      distance * SCORE_WEIGHTS.distance +
-        timing * SCORE_WEIGHTS.timing +
-        utilization * SCORE_WEIGHTS.utilization +
-        reliability * SCORE_WEIGHTS.reliability +
-        acceptanceRate * SCORE_WEIGHTS.acceptanceRate
-    );
-
-    const offeredRank = TRUCK_CLASS_RANK[row.truck_type] ?? null;
-    let truckTypeMatch = 'exact';
-    if (requiredRank != null && offeredRank != null) {
-      if (offeredRank < requiredRank) truckTypeMatch = 'downsize';
-      else if (offeredRank > requiredRank) truckTypeMatch = 'upsize';
-    }
-
-    let estimatedRate = null;
-    if (truckTypeMatch !== 'exact' && shipment.ai_recommended_rate != null) {
-      const fromMultiplier = TRUCK_RATE_MULTIPLIER[shipment.truck_type_required] ?? 1;
-      const toMultiplier = TRUCK_RATE_MULTIPLIER[row.truck_type] ?? 1;
-      estimatedRate = round2((Number(shipment.ai_recommended_rate) / fromMultiplier) * toMultiplier);
-    }
-
-    scored.push({
-      availabilityId: row.id,
-      carrier: {
-        id: row.carrier_id,
-        companyName: row.company_name,
-        baseLocation: row.base_location,
-        historicalAcceptanceRate: acceptanceRate,
-        avgRating: reliabilityStats.avgRating,
-        ratingCount: reliabilityStats.ratingCount,
-      },
-      availability: {
-        originRegion: row.origin_region,
-        truckType: row.truck_type,
-        truckCapacityKg: row.truck_capacity_kg,
-        windowStart: row.window_start,
-        windowEnd: row.window_end,
-        distanceKm,
-      },
-      truckType: {
-        required: shipment.truck_type_required,
-        offered: row.truck_type,
-        match: truckTypeMatch,
-        estimatedRate,
-      },
-      scores: { total, distance, timing, utilization, reliability, acceptanceRate },
-    });
+    const candidate = await scoreCandidateRow(shipment, row);
+    if (candidate) scored.push(candidate);
   }
 
   scored.sort((a, b) => b.scores.total - a.scores.total);
@@ -172,6 +191,7 @@ async function rankCandidates(shipment, limit = DEFAULT_CANDIDATE_LIMIT) {
 
 module.exports = {
   rankCandidates,
+  scoreCandidateRow,
   distanceKmAndScore,
   scoreTiming,
   scoreUtilization,
