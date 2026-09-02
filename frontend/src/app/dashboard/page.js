@@ -176,8 +176,11 @@ function MatchingExplainer({ role, config }) {
       </p>
 
       <p className="mt-3 text-sm text-gray-500">
-        The five scores combine into a single 0–100 compatibility score. The top-ranked candidate is offered the
-        match, and Claude writes a plain-language explanation of why it&rsquo;s a good (or borderline) fit.
+        The five scores combine into a single 0–100 compatibility score, narrowing the field to a handful of
+        eligible candidates. Claude then makes the final call on which one actually gets offered — usually the
+        top-ranked score, but not automatically: it can weigh things the formula can&rsquo;t, like a meaningfully
+        better-rated carrier or a right-sizing tradeoff worth taking. That reasoning is saved on the match itself,
+        not just shown once and forgotten.
       </p>
 
       <p className="mt-3 text-sm text-gray-500">

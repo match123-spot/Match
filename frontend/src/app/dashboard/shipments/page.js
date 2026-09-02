@@ -342,7 +342,10 @@ export default function ShipmentsPage() {
                   <p className="text-sm text-gray-500">No eligible carrier availability found.</p>
                 ) : (
                   matchesByShipment[s.id].map((c, idx) => (
-                    <div key={c.availabilityId} className="rounded-md bg-gray-50 p-3">
+                    <div
+                      key={c.availabilityId}
+                      className={`rounded-md p-3 ${c.isAiPick ? 'bg-indigo-50 ring-1 ring-indigo-300' : 'bg-gray-50'}`}
+                    >
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium">
                           #{idx + 1} {c.carrier.companyName}{' '}
@@ -352,6 +355,15 @@ export default function ShipmentsPage() {
                         </p>
                         <p className="text-sm font-semibold">{c.scores.total}/100</p>
                       </div>
+                      {c.isAiPick && (
+                        <p className="mt-1 text-xs font-medium text-indigo-700">
+                          🤖 Claude&rsquo;s pick — the candidate that would actually be offered
+                          {idx !== 0 && ', overriding the formula’s top-ranked score'}
+                        </p>
+                      )}
+                      {c.isAiPick && c.aiSelectionReasoning && (
+                        <p className="mt-1 text-xs italic text-indigo-900">&ldquo;{c.aiSelectionReasoning}&rdquo;</p>
+                      )}
                       {c.truckType?.match === 'downsize' && (
                         <p className="mt-1 text-xs font-medium text-green-700">
                           💡 Right-sizing recommendation: this {c.truckType.offered} comfortably covers the load —

@@ -2,7 +2,7 @@ const express = require('express');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { rankCandidates } = require('../services/matchingService');
-const { explainMatch } = require('../services/claudeService');
+const { explainMatch, pickBestCandidate } = require('../services/claudeService');
 const {
   createMatchForShipment,
   approveMatch,
@@ -42,17 +42,28 @@ router.get('/candidates/:shipmentId', requireAuth, requireRole('shipper'), async
     return res.json({ candidates: [] });
   }
 
-  const top = candidates[0];
+  // Same final-call logic as actually requesting a match (matchWorkflowService)
+  // — this preview shows the candidate that would really be offered, not
+  // just the formula's #1.
+  const aiSelection = await pickBestCandidate({ shipment, candidates });
+  const pickedIndex = aiSelection ? aiSelection.selectedIndex : 0;
+  const picked = candidates[pickedIndex];
+
   const explanation = await explainMatch({
     shipment,
-    carrier: top.carrier,
-    availability: top.availability,
-    scores: top.scores,
-    truckType: top.truckType,
+    carrier: picked.carrier,
+    availability: picked.availability,
+    scores: picked.scores,
+    truckType: picked.truckType,
   });
 
   res.json({
-    candidates: candidates.map((c, idx) => ({ ...c, explanation: idx === 0 ? explanation : null })),
+    candidates: candidates.map((c, idx) => ({
+      ...c,
+      isAiPick: idx === pickedIndex,
+      aiSelectionReasoning: idx === pickedIndex ? aiSelection?.reasoning ?? null : null,
+      explanation: idx === pickedIndex ? explanation : null,
+    })),
   });
 });
 

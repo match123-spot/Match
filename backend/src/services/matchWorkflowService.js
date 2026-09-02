@@ -1,7 +1,8 @@
 const { pool } = require('../config/db');
 const { rankCandidates } = require('./matchingService');
 const { sendMatchRequestEmail, sendBookingConfirmationEmail } = require('./emailService');
-const { APPROVAL_WINDOW_MS, CANDIDATE_POOL_SIZE } = require('../config/matching.config');
+const { pickBestCandidate } = require('./claudeService');
+const { APPROVAL_WINDOW_MS, CANDIDATE_POOL_SIZE, DEFAULT_CANDIDATE_LIMIT } = require('../config/matching.config');
 
 const OPEN_STATUSES = ['pending', 'shipper_approved', 'carrier_approved'];
 
@@ -43,23 +44,38 @@ async function maybeAutoApprove(match, shipment, carrierInfo) {
  * Picks the best not-yet-tried candidate for a shipment and opens a new
  * 20-minute dual-approval window. Used both for the shipper's initial match
  * request and for auto-rematch after a rejection or expiry.
+ *
+ * The formula (rankCandidates) narrows the field and enforces every hard
+ * eligibility rule — Claude never sees, and can't override, a candidate
+ * that failed geography, capacity, or temperature-control cutoffs. Among
+ * the top still-eligible candidates, Claude then makes the actual final
+ * call on which one gets offered, rather than the formula's #1 winning
+ * automatically. If Claude is unavailable or the call fails, the formula's
+ * top pick stands — this can never block a match from being created.
  */
 async function createMatchForShipment(shipment, { rematchOf = null } = {}) {
   const excluded = await getExcludedAvailabilityIds(shipment.id);
   const candidates = await rankCandidates(shipment, CANDIDATE_POOL_SIZE);
-  const pick = candidates.find((c) => !excluded.includes(c.availabilityId));
+  const eligible = candidates.filter((c) => !excluded.includes(c.availabilityId));
+  const considerationSet = eligible.slice(0, DEFAULT_CANDIDATE_LIMIT);
 
-  if (!pick) {
+  if (considerationSet.length === 0) {
     await pool.query(`UPDATE shipments SET status = 'pending', updated_at = now() WHERE id = $1`, [shipment.id]);
     return null;
   }
+
+  const aiSelection = await pickBestCandidate({ shipment, candidates: considerationSet });
+  const pick = aiSelection ? considerationSet[aiSelection.selectedIndex] : considerationSet[0];
+  const aiSelectionReasoning = aiSelection?.reasoning ?? null;
+  const aiSelectionRank = aiSelection ? aiSelection.selectedIndex + 1 : null;
 
   const deadline = new Date(Date.now() + APPROVAL_WINDOW_MS);
   const { rows } = await pool.query(
     `INSERT INTO matches
        (shipment_id, carrier_id, carrier_availability_id, score_total, score_distance, score_timing,
-        score_utilization, score_reliability, score_acceptance_rate, approval_deadline, is_rematch_of)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        score_utilization, score_reliability, score_acceptance_rate, approval_deadline, is_rematch_of,
+        ai_selection_reasoning, ai_selection_rank)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
     [
       shipment.id,
       pick.carrier.id,
@@ -72,6 +88,8 @@ async function createMatchForShipment(shipment, { rematchOf = null } = {}) {
       pick.scores.acceptanceRate,
       deadline,
       rematchOf,
+      aiSelectionReasoning,
+      aiSelectionRank,
     ]
   );
   const match = rows[0];

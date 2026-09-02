@@ -86,4 +86,79 @@ Consider distance, weight, and truck type premium against typical AU/NZ domestic
   }
 }
 
-module.exports = { explainMatch, recommendPrice };
+/**
+ * Claude makes the final call among the top formula-ranked candidates,
+ * rather than the formula's #1 winning automatically. The formula still
+ * does the heavy lifting — hard eligibility cutoffs (geography, capacity,
+ * temperature control) and the weighted score are computed exactly as
+ * before, and only the pre-filtered top candidates reach this call at all.
+ * This is where judgment the formula can't express gets applied: e.g.
+ * preferring a slightly-lower-scoring but much more reliable carrier, or
+ * flagging that a right-sized truck's pallet fit deserves a second look
+ * before it's the one actually offered.
+ *
+ * Returns null (formula's #1 stands) if Claude is unavailable, disagrees
+ * with itself, or the call fails — this must never block match creation.
+ */
+async function pickBestCandidate({ shipment, candidates }) {
+  if (candidates.length <= 1) return null; // nothing to decide between
+
+  try {
+    const candidateList = candidates
+      .map((c, i) => {
+        const rightSizing =
+          c.truckType?.match === 'downsize'
+            ? ` [right-sized: smaller ${c.truckType.offered} than the requested ${c.truckType.required}, est. rate $${c.truckType.estimatedRate}]`
+            : c.truckType?.match === 'upsize'
+              ? ` [larger ${c.truckType.offered} than requested, likely a premium]`
+              : '';
+        return `${i}. ${c.carrier.companyName} — ${c.availability.truckType} out of ${c.availability.originRegion} (${c.availability.distanceKm ?? '?'}km away). Formula score ${c.scores.total}/100 (distance ${c.scores.distance}, timing ${c.scores.timing}, utilization ${c.scores.utilization}, reliability ${c.scores.reliability}, acceptance rate ${c.scores.acceptanceRate}). Carrier rating: ${c.carrier.avgRating != null ? `${c.carrier.avgRating}/5 (${c.carrier.ratingCount} ratings)` : 'no ratings yet'}.${rightSizing}`;
+      })
+      .join('\n');
+
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 300,
+      tools: [
+        {
+          name: 'pick_best_candidate',
+          description: 'Select the single best carrier candidate to actually offer this shipment to.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              selectedIndex: { type: 'integer', description: 'Index of the chosen candidate from the numbered list' },
+              reasoning: {
+                type: 'string',
+                description: 'One or two plain-language sentences on why this candidate over the others',
+              },
+            },
+            required: ['selectedIndex', 'reasoning'],
+          },
+        },
+      ],
+      tool_choice: { type: 'tool', name: 'pick_best_candidate' },
+      messages: [
+        {
+          role: 'user',
+          content: `A weighted formula (distance 30%, timing 25%, utilization 15%, reliability 20%, acceptance rate 10%) has already narrowed this shipment down to its top eligible carrier candidates, ranked highest score first. Make the final call on which one to actually offer the shipment to.
+
+Shipment: ${shipment.origin_region} -> ${shipment.destination_region}, ${shipment.weight_kg}kg${shipment.pallet_count ? ` / ${shipment.pallet_count} pallets` : ''}, requires ${shipment.truck_type_required}.
+
+Candidates (index 0 is the formula's top pick):
+${candidateList}
+
+The formula score is a strong signal — don't second-guess it without a real reason. Deviate from the top-ranked candidate only when something in the data justifies it (e.g. meaningfully better carrier reliability, a right-sizing opportunity worth the tradeoff, a physical-fit concern). If nothing stands out, pick index 0 and say so.`,
+        },
+      ],
+    });
+    const toolUse = msg.content?.find((b) => b.type === 'tool_use');
+    const selectedIndex = toolUse?.input?.selectedIndex;
+    if (selectedIndex == null || selectedIndex < 0 || selectedIndex >= candidates.length) return null;
+    return { selectedIndex, reasoning: toolUse.input.reasoning ?? null };
+  } catch (err) {
+    console.error('Claude candidate selection failed:', err.message);
+    return null;
+  }
+}
+
+module.exports = { explainMatch, recommendPrice, pickBestCandidate };

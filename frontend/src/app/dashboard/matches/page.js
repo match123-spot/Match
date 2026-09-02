@@ -275,6 +275,13 @@ export default function MatchesPage() {
                 <p className="text-sm font-semibold">{m.score_total}/100</p>
               </div>
 
+              {m.ai_selection_reasoning && (
+                <p className="mt-2 rounded-md bg-indigo-50 px-2 py-1.5 text-xs text-indigo-900">
+                  🤖 {m.ai_selection_rank > 1 ? `Claude picked this over the formula's #1 — ` : ''}
+                  &ldquo;{m.ai_selection_reasoning}&rdquo;
+                </p>
+              )}
+
               <div className="mt-3 flex items-center justify-between text-sm">
                 <span
                   className={

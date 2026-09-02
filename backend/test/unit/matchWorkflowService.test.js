@@ -88,6 +88,18 @@ describe('createMatchForShipment', () => {
     assert.ok(minsUntilDeadline > 19 && minsUntilDeadline <= 20, `expected ~20min, got ${minsUntilDeadline}`);
   });
 
+  test('with only one eligible candidate, skips the Claude selection call and stores no AI reasoning', async () => {
+    const { shipperId } = await makeShipper();
+    const { carrierId } = await makeCarrierWithAvailability();
+    const shipment = await makeShipment(shipperId);
+
+    const match = await workflow.createMatchForShipment(shipment);
+
+    assert.equal(match.carrier_id, carrierId);
+    assert.equal(match.ai_selection_reasoning, null);
+    assert.equal(match.ai_selection_rank, null);
+  });
+
   test('returns null and leaves the shipment pending when no carrier is eligible', async () => {
     const { shipperId } = await makeShipper();
     const shipment = await makeShipment(shipperId); // no carrier availability created at all
